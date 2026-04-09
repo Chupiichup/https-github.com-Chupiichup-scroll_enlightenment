@@ -35,11 +35,14 @@ export async function decomposeGoal(goalTitle: string, level: string, targetValu
       model: "gemini-3-flash-preview",
       contents: `Bạn là một vị sư phụ thông thái. Đệ tử có một mục tiêu lớn: "${goalTitle}" với giá trị mục tiêu là ${targetValue} ${unit} cho cấp độ ${level}.
       Hãy giúp đệ tử chia nhỏ mục tiêu này thành các cấp độ thấp hơn (nếu là Năm thì chia thành 4 Quý, nếu là Quý thì chia thành 3 Tháng, nếu là Tháng thì chia thành 4 Tuần).
-      Trả về một mảng JSON các đối tượng, mỗi đối tượng có:
-      - title: tên mục tiêu con (ví dụ: "Quý 1: Khởi đầu nan")
-      - targetValue: giá trị mục tiêu con (số)
-      - description: lời khuyên ngắn gọn
-      Chỉ trả về JSON array, không giải thích.`,
+      
+      YÊU CẦU QUAN TRỌNG:
+      1. Trả về DUY NHẤT một mảng JSON các đối tượng.
+      2. Mỗi đối tượng PHẢI có:
+         - "title": tên mục tiêu con (ví dụ: "Quý 1: Khởi đầu nan")
+         - "targetValue": giá trị mục tiêu con (PHẢI là số, tổng các targetValue của con nên xấp xỉ bằng targetValue của cha)
+         - "description": lời khuyên ngắn gọn
+      3. KHÔNG có văn bản giải thích, KHÔNG có markdown code blocks. Chỉ trả về mảng JSON bắt đầu bằng [ và kết thúc bằng ].`,
     });
     const text = response.text || "";
     const jsonMatch = text.match(/\[.*\]/s);

@@ -358,12 +358,15 @@ function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedG
             <div className="flex items-center gap-4 mt-2">
               <div className="flex items-center gap-2">
                 <Input 
-                  type="number" 
-                  value={goal.currentValue}
-                  onChange={(e) => onUpdateValue(goal.id, Number(e.target.value))}
-                  className="w-20 h-8 text-xs bg-white/50 border-silk rounded-none"
+                  type="text" 
+                  value={goal.currentValue.toLocaleString('vi-VN')}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, "");
+                    onUpdateValue(goal.id, val ? parseInt(val, 10) : 0);
+                  }}
+                  className="w-24 h-8 text-xs bg-white/50 border-silk rounded-none font-bold"
                 />
-                <span className="text-xs opacity-60">/ {goal.targetValue} {goal.unit}</span>
+                <span className="text-xs opacity-60">/ {goal.targetValue.toLocaleString('vi-VN')} {goal.unit}</span>
               </div>
             </div>
           </div>
@@ -840,39 +843,54 @@ export default function App() {
       });
     } catch (error) {
       console.error("Add Goal Error:", error);
+      alert("Có lỗi xảy ra khi tạo đại nguyện. Vui lòng thử lại.");
     }
   };
 
   const handleDecomposeGoal = async (parentGoal: Goal) => {
+    if (!parentGoal) return;
     setIsAiLoading(true);
-    const subGoals = await decomposeGoal(parentGoal.title, parentGoal.level, parentGoal.targetValue, parentGoal.unit);
-    if (subGoals && Array.isArray(subGoals)) {
-      const nextLevel: any = {
-        "year": "quarter",
-        "quarter": "month",
-        "month": "week"
-      }[parentGoal.level];
+    console.log("Decomposing goal:", parentGoal.title);
+    try {
+      const subGoals = await decomposeGoal(parentGoal.title, parentGoal.level, parentGoal.targetValue, parentGoal.unit);
+      console.log("AI Response:", subGoals);
+      
+      if (subGoals && Array.isArray(subGoals)) {
+        const nextLevel: any = {
+          "year": "quarter",
+          "quarter": "month",
+          "month": "week"
+        }[parentGoal.level];
 
-      if (nextLevel) {
-        for (const sg of subGoals) {
-          await addDoc(collection(db, "goals"), {
-            title: sg.title,
-            description: sg.description,
-            targetValue: sg.targetValue,
-            currentValue: 0,
-            unit: parentGoal.unit,
-            level: nextLevel,
-            parentId: parentGoal.id,
-            ownerId: user.uid,
-            updateMethod: parentGoal.updateMethod,
-            createdAt: serverTimestamp(),
-            startDate: parentGoal.startDate,
-            endDate: parentGoal.endDate
-          });
+        if (nextLevel) {
+          // Use Promise.all for faster insertion
+          await Promise.all(subGoals.map(sg => 
+            addDoc(collection(db, "goals"), {
+              title: sg.title,
+              description: sg.description || "",
+              targetValue: Number(sg.targetValue) || 0,
+              currentValue: 0,
+              unit: parentGoal.unit,
+              level: nextLevel,
+              parentId: parentGoal.id,
+              ownerId: user.uid,
+              updateMethod: parentGoal.updateMethod,
+              createdAt: serverTimestamp(),
+              startDate: parentGoal.startDate,
+              endDate: parentGoal.endDate
+            })
+          ));
+          setExpandedGoals(prev => [...prev, parentGoal.id]);
         }
+      } else {
+        alert("AI không thể phân rã mục tiêu này. Vui lòng thử lại với tên mục tiêu rõ ràng hơn.");
       }
+    } catch (error) {
+      console.error("Decompose Error:", error);
+      alert("Lỗi kết nối AI. Vui lòng kiểm tra lại.");
+    } finally {
+      setIsAiLoading(false);
     }
-    setIsAiLoading(false);
   };
 
   const toggleGoalExpansion = (goalId: string) => {
@@ -1581,9 +1599,13 @@ export default function App() {
               <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase tracking-widest">Mục Tiêu (Con số)</label>
                 <Input 
-                  type="number"
-                  value={newGoal.targetValue}
-                  onChange={(e) => setNewGoal({...newGoal, targetValue: Number(e.target.value)})}
+                  type="text"
+                  value={newGoal.targetValue === 0 ? "" : newGoal.targetValue?.toLocaleString('vi-VN')}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, "");
+                    setNewGoal({...newGoal, targetValue: val ? parseInt(val, 10) : 0});
+                  }}
+                  placeholder="Nhập số lượng..."
                   className="bg-white/50 border-silk rounded-none"
                 />
               </div>
