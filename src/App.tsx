@@ -1,0 +1,1247 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { 
+  Plus, 
+  Search, 
+  Bell, 
+  Settings, 
+  MoreHorizontal, 
+  Clock, 
+  CheckCircle2, 
+  AlertCircle,
+  Library,
+  Book,
+  ScrollText,
+  Sparkles,
+  ChevronRight,
+  Calendar,
+  Filter,
+  User,
+  Menu,
+  X,
+  Trash2,
+  CheckSquare,
+  Type,
+  Tag as TagIcon,
+  Calendar as CalendarIcon,
+  MessageSquare,
+  Zap,
+  BarChart3,
+  LayoutDashboard
+} from "lucide-react";
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell
+} from 'recharts';
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogFooter,
+  DialogDescription
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  DndContext,
+  closestCorners,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+  defaultDropAnimationSideEffects,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { breakdownTask } from "@/src/lib/gemini";
+import ReactMarkdown from "react-markdown";
+import confetti from 'canvas-confetti';
+import { 
+  onAuthStateChanged, 
+  signInWithPopup, 
+  signOut, 
+  User as FirebaseUser 
+} from "firebase/auth";
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  onSnapshot, 
+  query, 
+  where, 
+  orderBy, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc,
+  getDocs,
+  serverTimestamp
+} from "firebase/firestore";
+import { auth, db, googleProvider } from "@/src/lib/firebase";
+
+// --- Types ---
+interface ChecklistItem {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+
+interface Task {
+  id: string;
+  columnId: string;
+  title: string;
+  description: string;
+  priority: "Low" | "Medium" | "High" | "Urgent";
+  deadline: string;
+  progress: number;
+  tags: string[];
+  checklist: ChecklistItem[];
+}
+
+interface Column {
+  id: string;
+  title: string;
+  color: string;
+}
+
+// --- Mock Data ---
+const INITIAL_COLUMNS: Column[] = [
+  { id: "todo", title: "Kinh Thư (Cần Học)", color: "border-silk" },
+  { id: "in-progress", title: "Đang Nghiên Cứu", color: "border-sage/30" },
+  { id: "review", title: "Ôn Tập Đạo Pháp", color: "border-cinnabar/20" },
+  { id: "done", title: "Công Thành Danh Toại", color: "border-sage" },
+];
+
+const INITIAL_TASKS: Task[] = [
+  { 
+    id: "1", 
+    columnId: "todo", 
+    title: "Nghiên cứu React Server Components", 
+    description: "Tìm hiểu về cơ chế hoạt động của RSC và cách tối ưu hóa hiệu năng.",
+    priority: "High", 
+    deadline: "2026-04-12",
+    progress: 0,
+    tags: ["React", "Advanced"],
+    checklist: []
+  },
+  { 
+    id: "2", 
+    columnId: "in-progress", 
+    title: "Luyện Ngữ Pháp IELTS", 
+    description: "Tập trung vào các cấu trúc câu phức và từ vựng học thuật.",
+    priority: "Medium", 
+    deadline: "2026-04-10",
+    progress: 45,
+    tags: ["English", "IELTS"],
+    checklist: [
+      { id: "c1", text: "Học 20 từ vựng mới", completed: true },
+      { id: "c2", text: "Làm bài tập câu bị động", completed: false }
+    ]
+  },
+  { 
+    id: "3", 
+    columnId: "review", 
+    title: "Cấu Trúc Dữ Liệu & Giải Thuật", 
+    description: "Ôn tập về cây nhị phân và đồ thị.",
+    priority: "Urgent", 
+    deadline: "2026-04-08",
+    progress: 80,
+    tags: ["CS", "Interview"],
+    checklist: []
+  },
+  { 
+    id: "4", 
+    columnId: "done", 
+    title: "Thiết Kế Giao Diện Thủy Mặc", 
+    description: "Hoàn thiện các hiệu ứng watercolor cho ứng dụng LearnFlow.",
+    priority: "Low", 
+    deadline: "2026-04-05",
+    progress: 100,
+    tags: ["Design"],
+    checklist: []
+  },
+];
+
+// --- Sortable Task Component ---
+function SortableTask({ task, getStatusColor }: { task: Task, getStatusColor: (d: string) => string }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id: task.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <Card className="oriental-card border-none group overflow-hidden mb-3">
+        <CardHeader className="p-4 pb-2 space-y-2">
+          <div className="flex justify-between items-start">
+            <div className="flex flex-wrap gap-1">
+              {task.tags.map(tag => (
+                <Badge key={tag} variant="outline" className="text-[9px] px-1.5 py-0 font-medium border-silk text-sage">
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+            <span className={`cinnabar-seal ${
+              task.priority === "Urgent" ? "opacity-100" : "opacity-60"
+            }`}>
+              {task.priority}
+            </span>
+          </div>
+          <CardTitle className="text-sm font-bold leading-tight group-hover:text-sage transition-colors">
+            {task.title}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 pt-0 space-y-3">
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-[10px] font-medium text-sage/60">
+              <span>Tiến độ</span>
+              <span>{task.progress}%</span>
+            </div>
+            <div className="h-1 w-full bg-silk/30 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-sage transition-all duration-500" 
+                style={{ width: `${task.progress}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-sm border text-[10px] font-bold ${getStatusColor(task.deadline)}`}>
+              <Clock className="w-3 h-3" />
+              {new Date(task.deadline).toLocaleDateString("vi-VN", { day: '2-digit', month: '2-digit' })}
+            </div>
+            
+            <div className="flex -space-x-2">
+              <div className="w-5 h-5 rounded-full border border-silk bg-paper flex items-center justify-center text-[8px] font-bold text-sage">
+                印
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// --- Main App Component ---
+export default function App() {
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [columns] = useState(INITIAL_COLUMNS);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [currentView, setCurrentView] = useState<"board" | "calendar" | "stats" | "ai" | "library">("board");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterPriority, setFilterPriority] = useState<string>("All");
+  const [aiMessage, setAiMessage] = useState("");
+  const [aiChatHistory, setAiChatHistory] = useState<{role: string, content: string}[]>([]);
+  const [isAiChatLoading, setIsAiChatLoading] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      setIsAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Firestore Listener
+  useEffect(() => {
+    if (!user) {
+      setTasks([]);
+      return;
+    }
+
+    // We'll use a single board for now for simplicity, or scope by ownerId
+    const q = query(
+      collection(db, "tasks"),
+      where("ownerId", "==", user.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const tasksData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Task[];
+      setTasks(tasksData);
+    }, (error) => {
+      console.error("Firestore Error:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error: any) {
+      console.error("Login Error:", error);
+      if (error.code === 'auth/popup-blocked') {
+        alert("Trình duyệt đã chặn cửa sổ đăng nhập. Vui lòng cho phép hiện popup hoặc thử mở ứng dụng trong tab mới.");
+      } else if (error.code === 'auth/unauthorized-domain') {
+        alert("Tên miền này chưa được ủy quyền trong Firebase Console. Vui lòng kiểm tra lại danh sách Authorized Domains.");
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        alert("Cửa sổ đăng nhập đã bị đóng trước khi hoàn tất. Vui lòng thử lại và không đóng cửa sổ cho đến khi đăng nhập xong. Nếu vẫn lỗi, hãy thử mở ứng dụng trong tab mới.");
+      } else {
+        alert("Lỗi đăng nhập: " + error.message);
+      }
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Logout Error:", error);
+    }
+  };
+
+  // Browser Notification Request & Deadline Check
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
+    const checkDeadlines = () => {
+      const now = new Date();
+      tasks.forEach(task => {
+        const due = new Date(task.deadline);
+        const diffMs = due.getTime() - now.getTime();
+        const diffHours = diffMs / (1000 * 60 * 60);
+
+        if (diffHours > 0 && diffHours <= 24 && Notification.permission === "granted") {
+          new Notification("Sắp đến hạn học tập!", {
+            body: `Mục tiêu "${task.title}" sẽ hết hạn trong vòng 24 giờ tới.`,
+            icon: "https://picsum.photos/seed/learn/100/100"
+          });
+        }
+      });
+    };
+
+    const interval = setInterval(checkDeadlines, 1000 * 60 * 60); // Check every hour
+    return () => clearInterval(interval);
+  }, [tasks]);
+
+  const getStatusColor = (deadline: string) => {
+    const now = new Date();
+    const due = new Date(deadline);
+    const diffDays = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) return "text-cinnabar bg-cinnabar/5 border-cinnabar/20";
+    if (diffDays <= 2) return "text-amber-700 bg-amber-50 border-amber-200";
+    return "text-sage bg-sage/5 border-sage/10";
+  };
+
+  const handleDragStart = (event: any) => {
+    setActiveId(event.active.id);
+  };
+
+  const handleDragOver = (event: any) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeId = active.id;
+    const overId = over.id;
+
+    if (activeId === overId) return;
+
+    const isActiveATask = tasks.some((t) => t.id === activeId);
+    const isOverATask = tasks.some((t) => t.id === overId);
+
+    if (!isActiveATask) return;
+
+    // Dropping a Task over another Task
+    if (isActiveATask && isOverATask) {
+      const activeIndex = tasks.findIndex((t) => t.id === activeId);
+      const overIndex = tasks.findIndex((t) => t.id === overId);
+
+      if (tasks[activeIndex].columnId !== tasks[overIndex].columnId) {
+        updateDoc(doc(db, "tasks", activeId as string), {
+          columnId: tasks[overIndex].columnId
+        });
+      }
+    }
+
+    // Dropping a Task over a Column
+    const isOverAColumn = columns.some((c) => c.id === overId);
+    if (isActiveATask && isOverAColumn) {
+      updateDoc(doc(db, "tasks", activeId as string), {
+        columnId: overId as string
+      });
+    }
+  };
+
+  const handleDragEnd = (event: any) => {
+    const { active, over } = event;
+    if (over) {
+      const activeTask = tasks.find(t => t.id === active.id);
+      if (activeTask && over.id === "done" && activeTask.columnId !== "done") {
+        confetti({
+          particleCount: 150,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#5D6D5D', '#A63D33', '#D4C5B3']
+        });
+      }
+    }
+    setActiveId(null);
+  };
+
+  const openTaskDetail = (task: Task) => {
+    setSelectedTask(task);
+    setIsDetailOpen(true);
+  };
+
+  const updateTask = async (updates: Partial<Task>) => {
+    if (!selectedTask || !user) return;
+    const updatedTask = { ...selectedTask, ...updates };
+    
+    // Calculate progress if checklist changed
+    if (updates.checklist) {
+      const total = updates.checklist.length;
+      const completed = updates.checklist.filter(i => i.completed).length;
+      updatedTask.progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+    }
+
+    try {
+      await updateDoc(doc(db, "tasks", selectedTask.id), updatedTask);
+      setSelectedTask(updatedTask);
+    } catch (error) {
+      console.error("Update Task Error:", error);
+    }
+  };
+
+  const deleteTask = async (taskId: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, "tasks", taskId));
+      setIsDetailOpen(false);
+      setSelectedTask(null);
+    } catch (error) {
+      console.error("Delete Task Error:", error);
+    }
+  };
+
+  const handleAiAssist = async () => {
+    if (!selectedTask) return;
+    setIsAiLoading(true);
+    const steps = await breakdownTask(selectedTask.title);
+    if (steps.length > 0) {
+      const newItems: ChecklistItem[] = steps.map(s => ({
+        id: Math.random().toString(36).substr(2, 9),
+        text: s,
+        completed: false
+      }));
+      updateTask({ checklist: [...(selectedTask.checklist || []), ...newItems] });
+    }
+    setIsAiLoading(false);
+  };
+
+  const handleAiChat = async () => {
+    if (!aiMessage.trim()) return;
+    
+    const userMsg = { role: "user", content: aiMessage };
+    setAiChatHistory(prev => [...prev, userMsg]);
+    setAiMessage("");
+    setIsAiChatLoading(true);
+
+    try {
+      const response = await breakdownTask(`Hãy tư vấn cho tôi về mục tiêu tu luyện sau: ${aiMessage}. Hãy trả lời như một vị sư phụ thông thái trong một thư viện cổ, hướng dẫn đệ tử trên con đường giác ngộ.`);
+      const aiMsg = { role: "assistant", content: response.join("\n\n") };
+      setAiChatHistory(prev => [...prev, aiMsg]);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsAiChatLoading(false);
+    }
+  };
+
+  const addNewTask = async (columnId: string) => {
+    if (!user) return;
+    const newTask = {
+      columnId,
+      title: "Mục tiêu mới",
+      description: "",
+      priority: "Medium",
+      deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      progress: 0,
+      tags: ["Mới"],
+      checklist: [],
+      ownerId: user.uid,
+      createdAt: serverTimestamp()
+    };
+    
+    try {
+      const docRef = await addDoc(collection(db, "tasks"), newTask);
+      openTaskDetail({ id: docRef.id, ...newTask } as any);
+    } catch (error) {
+      console.error("Add Task Error:", error);
+    }
+  };
+
+  const filteredTasks = useMemo(() => {
+    return tasks.filter(task => {
+      const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                           task.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesPriority = filterPriority === "All" || task.priority === filterPriority;
+      return matchesSearch && matchesPriority;
+    });
+  }, [tasks, searchQuery, filterPriority]);
+
+  // --- Statistics Data ---
+  const statsData = useMemo(() => {
+    const columnCounts = columns.map(col => ({
+      name: col.title,
+      value: tasks.filter(t => t.columnId === col.id).length
+    }));
+
+    const priorityCounts = [
+      { name: 'Thấp', value: tasks.filter(t => t.priority === 'Low').length, color: '#5D6D5D' },
+      { name: 'Trung Bình', value: tasks.filter(t => t.priority === 'Medium').length, color: '#D4C5B3' },
+      { name: 'Cao', value: tasks.filter(t => t.priority === 'High').length, color: '#A63D33' },
+      { name: 'Khẩn Cấp', value: tasks.filter(t => t.priority === 'Urgent').length, color: '#8B0000' },
+    ];
+
+    return { columnCounts, priorityCounts };
+  }, [tasks, columns]);
+
+  if (isAuthLoading) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-paper">
+        <div className="text-center space-y-4">
+          <Library className="w-12 h-12 text-sage animate-pulse mx-auto" />
+          <p className="text-sm italic text-sage">Đang mở cổng thư viện...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-paper relative overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none opacity-20">
+          <div className="absolute -top-20 -left-20 w-96 h-96 bg-sage rounded-full blur-[100px]"></div>
+          <div className="absolute -bottom-20 -right-20 w-96 h-96 bg-cinnabar rounded-full blur-[100px]"></div>
+        </div>
+        
+        <Card className="w-full max-w-md oriental-card border-silk bg-white/80 backdrop-blur-xl relative z-10 p-12 text-center space-y-8">
+          <div className="space-y-4">
+            <div className="w-20 h-20 border-2 border-cinnabar rounded-full flex items-center justify-center mx-auto relative">
+              <Library className="text-cinnabar w-10 h-10" />
+              <div className="absolute -bottom-1 -right-1 bg-cinnabar text-paper text-[10px] px-1.5 font-bold">藏書</div>
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-3xl font-bold tracking-widest uppercase">Scroll of Enlightenment</h1>
+              <p className="text-xs text-sage font-medium uppercase tracking-[0.2em]">Cổ Thư Tu Tiên</p>
+            </div>
+          </div>
+          
+          <div className="space-y-6">
+            <p className="text-sm italic text-sage/80 leading-relaxed">
+              "Hành trình vạn dặm bắt đầu từ một bước chân. <br/> Hãy đăng nhập để tiếp tục con đường giác ngộ của bạn."
+            </p>
+            <Button onClick={handleLogin} className="ink-button w-full h-12 text-base rounded-none shadow-xl group">
+              <User className="w-5 h-5 mr-2 group-hover:rotate-12 transition-transform" />
+              Bước Vào Thư Viện
+            </Button>
+          </div>
+          
+          <div className="pt-8 border-t border-silk/30">
+            <p className="text-[10px] text-sage/40 uppercase tracking-widest">Bản Toàn Năng © 2026</p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen w-full bg-paper text-ink font-serif overflow-hidden">
+      {/* Sidebar - Oriental Style */}
+      <aside className="w-64 border-r border-silk bg-white/40 backdrop-blur-md flex flex-col">
+        <div className="p-8 flex flex-col items-center gap-4">
+          <div className="w-16 h-16 border-2 border-cinnabar rounded-full flex items-center justify-center relative">
+            <Library className="text-cinnabar w-8 h-8" />
+            <div className="absolute -bottom-1 -right-1 bg-cinnabar text-paper text-[8px] px-1 font-bold">
+              藏書
+            </div>
+          </div>
+          <div className="text-center">
+            <h1 className="font-bold text-2xl tracking-widest uppercase">Scroll of Enlightenment</h1>
+            <p className="text-[10px] text-sage font-medium uppercase tracking-[0.2em]">Cổ Thư Tu Tiên</p>
+          </div>
+        </div>
+
+        <nav className="flex-1 px-6 space-y-2">
+          <Button 
+            variant="ghost" 
+            onClick={() => setCurrentView("board")}
+            className={`w-full justify-start gap-4 rounded-none transition-all ${
+              currentView === "board" ? "text-sage bg-sage/5 border-l-2 border-sage" : "text-ink/60 hover:text-sage hover:bg-sage/5"
+            }`}
+          >
+            <LayoutDashboard className="w-4 h-4" /> Bảng Đạo Pháp
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={() => setCurrentView("calendar")}
+            className={`w-full justify-start gap-4 rounded-none transition-all ${
+              currentView === "calendar" ? "text-sage bg-sage/5 border-l-2 border-sage" : "text-ink/60 hover:text-sage hover:bg-sage/5"
+            }`}
+          >
+            <Calendar className="w-4 h-4" /> Lịch Trình
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={() => setCurrentView("stats")}
+            className={`w-full justify-start gap-4 rounded-none transition-all ${
+              currentView === "stats" ? "text-sage bg-sage/5 border-l-2 border-sage" : "text-ink/60 hover:text-sage hover:bg-sage/5"
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" /> Thống Kê Đạo Pháp
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={() => setCurrentView("library")}
+            className={`w-full justify-start gap-4 rounded-none transition-all ${
+              currentView === "library" ? "text-sage bg-sage/5 border-l-2 border-sage" : "text-ink/60 hover:text-sage hover:bg-sage/5"
+            }`}
+          >
+            <Book className="w-4 h-4" /> Thư Viện Cổ
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={() => setCurrentView("ai")}
+            className={`w-full justify-start gap-4 rounded-none transition-all ${
+              currentView === "ai" ? "text-sage bg-sage/5 border-l-2 border-sage" : "text-ink/60 hover:text-sage hover:bg-sage/5"
+            }`}
+          >
+            <Sparkles className="w-4 h-4" /> AI Tiên Tri
+          </Button>
+        </nav>
+
+        <div className="p-6 mt-auto">
+          {/* Premium Access card removed */}
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col min-w-0 bg-paper/30">
+        {/* Header */}
+        <header className="h-20 border-b border-silk bg-white/20 backdrop-blur-sm px-10 flex items-center justify-between">
+          <div className="flex items-center gap-6 flex-1 max-w-xl">
+            <div className="relative w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-sage/40" />
+              <Input 
+                placeholder="Tìm kiếm kinh thư..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 bg-paper/50 border-silk focus-visible:ring-sage rounded-none italic"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2 text-sage">
+              <Filter className="w-4 h-4" />
+              <select 
+                value={filterPriority}
+                onChange={(e) => setFilterPriority(e.target.value)}
+                className="bg-transparent border-none text-xs font-bold uppercase tracking-widest focus:ring-0 cursor-pointer"
+              >
+                <option value="All">Tất cả độ ưu tiên</option>
+                <option value="Low">Thấp</option>
+                <option value="Medium">Trung Bình</option>
+                <option value="High">Cao</option>
+                <option value="Urgent">Khẩn Cấp</option>
+              </select>
+            </div>
+            <Button variant="ghost" size="icon" className="relative text-ink/70">
+              <Bell className="w-5 h-5" />
+              <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-cinnabar rounded-full"></span>
+            </Button>
+            <div className="flex items-center gap-3 pl-6 border-l border-silk">
+              <div className="text-right hidden sm:block">
+                <p className="text-xs font-bold">{user?.displayName || "Học Giả"}</p>
+                <p className="text-[9px] text-sage uppercase tracking-tighter">Học Giả</p>
+              </div>
+              <div className="w-10 h-10 rounded-full border border-silk p-0.5 group relative cursor-pointer">
+                <div className="w-full h-full rounded-full bg-sage/10 flex items-center justify-center overflow-hidden">
+                  <img src={user?.photoURL || "https://picsum.photos/seed/oriental/100/100"} alt="User" referrerPolicy="no-referrer" />
+                </div>
+                <div className="absolute top-full right-0 mt-2 w-32 bg-white border border-silk shadow-xl hidden group-hover:block z-50">
+                  <Button 
+                    variant="ghost" 
+                    onClick={handleLogout}
+                    className="w-full justify-start text-xs text-cinnabar hover:bg-cinnabar/5 rounded-none"
+                  >
+                    Đăng Xuất
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Board Area */}
+        <div className="flex-1 p-10 overflow-hidden flex flex-col relative">
+          {/* Watercolor Background Effect */}
+          <div className="absolute inset-0 pointer-events-none opacity-10 mix-blend-multiply overflow-hidden">
+            <div className="absolute -top-20 -left-20 w-96 h-96 bg-sage rounded-full blur-[100px]"></div>
+            <div className="absolute top-1/2 -right-20 w-80 h-80 bg-cinnabar rounded-full blur-[120px]"></div>
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 bg-silk rounded-full blur-[100px]"></div>
+          </div>
+
+          <div className="flex items-center justify-between mb-10 relative z-10">
+            <div>
+              <div className="flex items-center gap-3 mb-1">
+                <h2 className="text-3xl font-bold tracking-tight">
+                  {currentView === "board" && "Mục Tiêu Tu Luyện"}
+                  {currentView === "calendar" && "Lịch Trình Tu Luyện"}
+                  {currentView === "stats" && "Thống Kê Đạo Pháp"}
+                  {currentView === "ai" && "AI Tiên Tri Tư Vấn"}
+                  {currentView === "library" && "Thư Viện Cổ"}
+                </h2>
+                <div className="cinnabar-seal">Bản Toàn Năng</div>
+              </div>
+              <p className="text-sage/60 text-sm italic">
+                {currentView === "board" && "Hành trình vạn dặm bắt đầu từ một bước chân."}
+                {currentView === "calendar" && "Thời gian là vàng bạc, hãy trân trọng từng khắc."}
+                {currentView === "stats" && "Nhìn lại chặng đường đã qua để vững bước tương lai."}
+                {currentView === "ai" && "Hãy hỏi vị sư phụ về con đường giác ngộ của bạn."}
+                {currentView === "library" && "Nơi lưu giữ những thành tựu và tri thức bạn đã đạt được."}
+              </p>
+            </div>
+            {currentView === "board" && (
+              <div className="flex gap-4">
+                <Button onClick={() => addNewTask("todo")} className="ink-button gap-2 rounded-none shadow-lg">
+                  <Plus className="w-4 h-4" /> Khởi Tạo Mục Tiêu
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {currentView === "board" && (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCorners}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
+            >
+              <ScrollArea className="flex-1">
+                <div className="flex gap-8 pb-8 min-h-[600px]">
+                  {columns.map((column) => (
+                    <div key={column.id} className="w-80 flex-shrink-0 flex flex-col gap-5">
+                      <div className="flex items-center justify-between px-3">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-2 h-2 rounded-full ${
+                            column.id === 'todo' ? 'bg-silk' :
+                            column.id === 'in-progress' ? 'bg-sage' :
+                            column.id === 'review' ? 'bg-cinnabar' : 'bg-sage'
+                          }`} />
+                          <h3 className="font-bold text-ink/80 text-sm uppercase tracking-widest">{column.title}</h3>
+                          <span className="text-[10px] font-serif italic text-sage">({tasks.filter(t => t.columnId === column.id).length})</span>
+                        </div>
+                        <MoreHorizontal className="w-4 h-4 text-silk cursor-pointer hover:text-sage" />
+                      </div>
+
+                      <div className={`flex-1 rounded-sm p-4 bg-white/30 border-t-2 ${column.color} space-y-4 min-h-[150px]`}>
+                        <SortableContext
+                          items={filteredTasks.filter(t => t.columnId === column.id).map(t => t.id)}
+                          strategy={verticalListSortingStrategy}
+                        >
+                          {filteredTasks
+                            .filter((task) => task.columnId === column.id)
+                            .map((task) => (
+                              <div key={task.id} onClick={() => openTaskDetail(task)}>
+                                <SortableTask task={task} getStatusColor={getStatusColor} />
+                              </div>
+                            ))}
+                        </SortableContext>
+                        
+                        <Button 
+                          variant="ghost" 
+                          onClick={() => addNewTask(column.id)}
+                          className="w-full justify-start gap-2 text-sage/60 hover:text-sage hover:bg-white/50 h-10 text-xs italic font-medium rounded-none border border-dashed border-silk/50"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Thêm thẻ mới...
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+
+              <DragOverlay dropAnimation={{
+                sideEffects: defaultDropAnimationSideEffects({
+                  styles: {
+                    active: {
+                      opacity: '0.5',
+                    },
+                  },
+                }),
+              }}>
+                {activeId ? (
+                  <div className="w-80 opacity-90 scale-105 rotate-2">
+                    <SortableTask 
+                      task={tasks.find(t => t.id === activeId)!} 
+                      getStatusColor={getStatusColor} 
+                    />
+                  </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
+          )}
+
+          {currentView === "calendar" && (
+            <div className="flex-1 overflow-y-auto relative z-10">
+              <div className="bg-white/60 border border-silk p-8 oriental-card">
+                <div className="grid grid-cols-7 gap-px bg-silk/20 border border-silk">
+                  {['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map(day => (
+                    <div key={day} className="bg-paper p-2 text-center text-[10px] font-bold text-sage uppercase tracking-widest border-b border-silk">
+                      {day}
+                    </div>
+                  ))}
+                  {Array.from({ length: 35 }).map((_, i) => {
+                    const day = i - 3; // Simple offset for demo
+                    const dateStr = `2026-04-${day < 10 ? '0' + day : day}`;
+                    const dayTasks = tasks.filter(t => t.deadline === dateStr);
+                    
+                    return (
+                      <div key={i} className="bg-white/40 min-h-[120px] p-2 border-r border-b border-silk last:border-r-0">
+                        <span className={`text-[10px] font-bold ${day > 0 && day <= 30 ? 'text-ink' : 'text-ink/20'}`}>
+                          {day > 0 && day <= 30 ? day : ''}
+                        </span>
+                        <div className="mt-2 space-y-1">
+                          {dayTasks.map(task => (
+                            <div 
+                              key={task.id} 
+                              onClick={() => openTaskDetail(task)}
+                              className="text-[8px] p-1 bg-sage/10 border-l-2 border-sage truncate cursor-pointer hover:bg-sage/20 transition-colors"
+                            >
+                              {task.title}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {currentView === "stats" && (
+            <div className="flex-1 overflow-y-auto relative z-10 space-y-8 pb-10">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <Card className="oriental-card border-silk bg-white/60">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-bold uppercase tracking-widest">Phân Bổ Mục Tiêu</CardTitle>
+                  </CardHeader>
+                  <CardContent className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={statsData.columnCounts}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#D4C5B3" vertical={false} />
+                        <XAxis dataKey="name" stroke="#5D6D5D" fontSize={10} tickLine={false} axisLine={false} />
+                        <YAxis stroke="#5D6D5D" fontSize={10} tickLine={false} axisLine={false} />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: '#F4F1EA', border: '1px solid #D4C5B3', fontFamily: 'serif' }}
+                          cursor={{ fill: '#5D6D5D10' }}
+                        />
+                        <Bar dataKey="value" fill="#5D6D5D" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card className="oriental-card border-silk bg-white/60">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-bold uppercase tracking-widest">Độ Ưu Tiên Tu Luyện</CardTitle>
+                  </CardHeader>
+                  <CardContent className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={statsData.priorityCounts}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          {statsData.priorityCounts.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: '#F4F1EA', border: '1px solid #D4C5B3', fontFamily: 'serif' }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="flex justify-center gap-4 mt-4">
+                      {statsData.priorityCounts.map(p => (
+                        <div key={p.name} className="flex items-center gap-1.5">
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
+                          <span className="text-[10px] font-bold text-sage uppercase">{p.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card className="oriental-card border-silk bg-white/60">
+                <CardHeader>
+                  <CardTitle className="text-sm font-bold uppercase tracking-widest">Tiến Độ Tổng Thể</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-6">
+                    {tasks.slice(0, 5).map(task => (
+                      <div key={task.id} className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold italic">{task.title}</span>
+                          <span className="text-[10px] font-bold text-sage">{task.progress}%</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-silk/30 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-sage transition-all duration-1000" 
+                            style={{ width: `${task.progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {currentView === "ai" && (
+            <div className="flex-1 flex flex-col relative z-10 bg-white/40 border border-silk oriental-card overflow-hidden">
+              <ScrollArea className="flex-1 p-8">
+                <div className="space-y-6 max-w-3xl mx-auto">
+                  {aiChatHistory.length === 0 && (
+                    <div className="text-center py-20 space-y-4">
+                      <Sparkles className="w-12 h-12 text-sage/20 mx-auto" />
+                      <h3 className="text-xl font-bold italic">Chào mừng Học Giả</h3>
+                      <p className="text-sm text-sage/60">Hãy đặt câu hỏi về mục tiêu học tập, tôi sẽ giúp bạn tìm ra con đường đúng đắn.</p>
+                    </div>
+                  )}
+                  {aiChatHistory.map((msg, i) => (
+                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[80%] p-4 rounded-none border ${
+                        msg.role === 'user' 
+                        ? 'bg-sage/10 border-sage/20 text-ink italic' 
+                        : 'bg-white/80 border-silk text-ink font-serif'
+                      }`}>
+                        <div className="prose prose-sm max-w-none">
+                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {isAiChatLoading && (
+                    <div className="flex justify-start">
+                      <div className="p-4 bg-white/80 border border-silk animate-pulse flex gap-2 items-center text-sage italic text-sm">
+                        <Zap className="w-4 h-4 animate-bounce" /> Vị sư phụ đang suy ngẫm...
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+              <div className="p-6 border-t border-silk bg-paper/50">
+                <div className="max-w-3xl mx-auto flex gap-4">
+                  <Input 
+                    placeholder="Hỏi về mục tiêu học tập của bạn..."
+                    value={aiMessage}
+                    onChange={(e) => setAiMessage(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAiChat()}
+                    className="bg-white border-silk rounded-none italic"
+                  />
+                  <Button onClick={handleAiChat} disabled={isAiChatLoading} className="ink-button rounded-none">
+                    Gửi Lời
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {currentView === "library" && (
+            <div className="flex-1 overflow-y-auto relative z-10">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
+                {tasks.filter(t => t.columnId === 'done').length === 0 && (
+                  <div className="col-span-full py-20 text-center space-y-4">
+                    <Book className="w-12 h-12 text-sage/20 mx-auto" />
+                    <h3 className="text-xl font-bold italic">Thư Viện Đang Trống</h3>
+                    <p className="text-sm text-sage/60">Hãy hoàn thành các mục tiêu để lưu giữ chúng vào thư viện cổ.</p>
+                  </div>
+                )}
+                {tasks.filter(t => t.columnId === 'done').map(task => (
+                  <div 
+                    key={task.id} 
+                    onClick={() => openTaskDetail(task)}
+                    className="group cursor-pointer"
+                  >
+                    <div className="relative aspect-[3/4] bg-white border-2 border-silk p-4 flex flex-col justify-between shadow-md group-hover:shadow-xl transition-all group-hover:-translate-y-2">
+                      <div className="absolute left-2 top-0 bottom-0 w-1 bg-silk/20"></div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-start">
+                          <Library className="w-4 h-4 text-sage/40" />
+                          <div className="cinnabar-seal text-[8px] opacity-40">完</div>
+                        </div>
+                        <h4 className="font-bold text-sm leading-tight group-hover:text-sage transition-colors">{task.title}</h4>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="h-px bg-silk/30 w-full"></div>
+                        <p className="text-[9px] text-sage italic">Hoàn thành: {new Date().toLocaleDateString('vi-VN')}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* Task Detail Modal - Premium Oriental Style */}
+      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+        <DialogContent className="max-w-3xl bg-paper border-silk p-0 overflow-hidden rounded-none shadow-2xl">
+          {selectedTask && (
+            <div className="flex flex-col h-[80vh]">
+              <div className="p-8 border-b border-silk bg-white/40 flex justify-between items-start">
+                <div className="space-y-2 flex-1">
+                  <div className="flex items-center gap-3">
+                    <ScrollText className="w-5 h-5 text-sage" />
+                    <Input 
+                      value={selectedTask.title}
+                      onChange={(e) => updateTask({ title: e.target.value })}
+                      className="text-2xl font-bold bg-transparent border-none p-0 focus-visible:ring-0 h-auto"
+                    />
+                  </div>
+                  <p className="text-xs text-sage italic">Trong danh mục: {columns.find(c => c.id === selectedTask.columnId)?.title}</p>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setIsDetailOpen(false)}>
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                <div className="grid grid-cols-3 gap-8">
+                  <div className="col-span-2 space-y-8">
+                    {/* Description */}
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-ink/80">
+                        <MessageSquare className="w-4 h-4" />
+                        <h4 className="font-bold text-sm uppercase tracking-widest">Mô Tả Kinh Thư</h4>
+                      </div>
+                      <div className="grid grid-cols-1 gap-4">
+                        <Textarea 
+                          placeholder="Ghi chú chi tiết về mục tiêu học tập này (Hỗ trợ Markdown)..."
+                          value={selectedTask.description}
+                          onChange={(e) => updateTask({ description: e.target.value })}
+                          className="bg-white/50 border-silk rounded-none min-h-[120px] italic text-sm"
+                        />
+                        {selectedTask.description && (
+                          <div className="p-4 bg-sage/5 border border-dashed border-sage/20 rounded-none prose prose-sm max-w-none italic text-sage/80">
+                            <ReactMarkdown>{selectedTask.description}</ReactMarkdown>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Checklist */}
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-ink/80">
+                          <CheckSquare className="w-4 h-4" />
+                          <h4 className="font-bold text-sm uppercase tracking-widest">Các Bước Tu Luyện</h4>
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={handleAiAssist}
+                          disabled={isAiLoading}
+                          className="gap-2 border-sage text-sage hover:bg-sage/5 rounded-none text-[10px] font-bold uppercase tracking-wider"
+                        >
+                          <Sparkles className={`w-3 h-3 ${isAiLoading ? 'animate-pulse' : ''}`} />
+                          {isAiLoading ? 'Đang Tiên Tri...' : 'AI Tiên Tri'}
+                        </Button>
+                      </div>
+
+                      <div className="space-y-2">
+                        {selectedTask.checklist.map((item, idx) => (
+                          <div key={item.id} className="flex items-center gap-3 group">
+                            <input 
+                              type="checkbox" 
+                              checked={item.completed}
+                              onChange={(e) => {
+                                const newChecklist = [...selectedTask.checklist];
+                                newChecklist[idx].completed = e.target.checked;
+                                updateTask({ checklist: newChecklist });
+                              }}
+                              className="w-4 h-4 accent-sage border-silk"
+                            />
+                            <Input 
+                              value={item.text}
+                              onChange={(e) => {
+                                const newChecklist = [...selectedTask.checklist];
+                                newChecklist[idx].text = e.target.value;
+                                updateTask({ checklist: newChecklist });
+                              }}
+                              className="bg-transparent border-none p-0 focus-visible:ring-0 text-sm italic"
+                            />
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="opacity-0 group-hover:opacity-100 h-6 w-6 text-cinnabar"
+                              onClick={() => {
+                                const newChecklist = selectedTask.checklist.filter((_, i) => i !== idx);
+                                updateTask({ checklist: newChecklist });
+                              }}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="text-sage/60 italic text-xs p-0 h-auto hover:bg-transparent hover:text-sage"
+                          onClick={() => {
+                            const newItem = { id: Math.random().toString(36).substr(2, 9), text: "Bước mới...", completed: false };
+                            updateTask({ checklist: [...selectedTask.checklist, newItem] });
+                          }}
+                        >
+                          + Thêm bước mới...
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Sidebar Info */}
+                  <div className="space-y-6">
+                    <div className="space-y-4 border border-silk p-4 bg-white/20">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold text-sage uppercase tracking-widest">Độ Ưu Tiên</p>
+                        <select 
+                          value={selectedTask.priority}
+                          onChange={(e) => updateTask({ priority: e.target.value as any })}
+                          className="w-full bg-transparent border-none text-sm font-bold text-cinnabar focus:ring-0"
+                        >
+                          <option value="Low">Thấp</option>
+                          <option value="Medium">Trung Bình</option>
+                          <option value="High">Cao</option>
+                          <option value="Urgent">Khẩn Cấp</option>
+                        </select>
+                      </div>
+
+                      <Separator className="bg-silk/50" />
+
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold text-sage uppercase tracking-widest">Ngày Đến Hạn</p>
+                        <div className="flex items-center gap-2">
+                          <CalendarIcon className="w-3 h-3 text-sage" />
+                          <input 
+                            type="date" 
+                            value={selectedTask.deadline}
+                            onChange={(e) => updateTask({ deadline: e.target.value })}
+                            className="bg-transparent border-none text-sm font-bold focus:ring-0"
+                          />
+                        </div>
+                      </div>
+
+                      <Separator className="bg-silk/50" />
+
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-sage uppercase tracking-widest">Nhãn (Tags)</p>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedTask.tags.map(tag => (
+                            <Badge key={tag} className="sage-badge text-[9px] rounded-none">
+                              {tag}
+                              <X className="w-2 h-2 ml-1 cursor-pointer" onClick={() => updateTask({ tags: selectedTask.tags.filter(t => t !== tag) })} />
+                            </Badge>
+                          ))}
+                          <div className="flex items-center gap-1">
+                            <Input 
+                              placeholder="Thêm nhãn..."
+                              className="h-6 text-[9px] w-20 bg-transparent border-dashed border-silk rounded-none p-1"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  const val = (e.target as HTMLInputElement).value.trim();
+                                  if (val && !selectedTask.tags.includes(val)) {
+                                    updateTask({ tags: [...selectedTask.checklist.length > 0 ? selectedTask.tags : selectedTask.tags, val] });
+                                    (e.target as HTMLInputElement).value = '';
+                                  }
+                                }
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Button 
+                      variant="ghost" 
+                      className="w-full justify-start gap-2 text-cinnabar hover:bg-cinnabar/5 rounded-none text-xs font-bold uppercase tracking-widest"
+                      onClick={() => deleteTask(selectedTask.id)}
+                    >
+                      <Trash2 className="w-4 h-4" /> Xóa Mục Tiêu
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

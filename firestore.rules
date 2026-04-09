@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isBoardOwner(boardId) {
+      return isAuthenticated() && get(/databases/$(database)/documents/boards/$(boardId)).data.ownerId == request.auth.uid;
+    }
+
+    // Boards
+    match /boards/{boardId} {
+      allow read, write: if isOwner(resource.data.ownerId) || (request.resource.data.ownerId == request.auth.uid);
+      
+      // Columns
+      match /columns/{columnId} {
+        allow read, write: if isBoardOwner(boardId);
+      }
+      
+      // Tasks
+      match /tasks/{taskId} {
+        allow read, write: if isBoardOwner(boardId);
+      }
+    }
+    
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
