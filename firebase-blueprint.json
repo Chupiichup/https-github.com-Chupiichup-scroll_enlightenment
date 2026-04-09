@@ -1,39 +1,28 @@
 {
   "entities": {
-    "Board": {
-      "title": "Board",
-      "description": "A Kanban board for organizing tasks",
-      "type": "object",
-      "properties": {
-        "title": { "type": "string", "description": "The name of the board" },
-        "background": { "type": "string", "description": "Background style or color" },
-        "ownerId": { "type": "string", "description": "UID of the board owner" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["title", "ownerId"]
-    },
     "Column": {
       "title": "Column",
       "description": "A list or column within a board",
       "type": "object",
       "properties": {
+        "id": { "type": "string" },
         "title": { "type": "string" },
-        "boardId": { "type": "string" },
+        "ownerId": { "type": "string" },
         "order": { "type": "number" },
+        "color": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["title", "boardId", "order"]
+      "required": ["title", "ownerId", "order"]
     },
     "Task": {
       "title": "Task",
       "description": "A card or task within a column",
       "type": "object",
       "properties": {
+        "id": { "type": "string" },
         "title": { "type": "string" },
         "description": { "type": "string" },
         "columnId": { "type": "string" },
-        "boardId": { "type": "string" },
-        "order": { "type": "number" },
         "priority": { "type": "string", "enum": ["Low", "Medium", "High", "Urgent"] },
         "deadline": { "type": "string", "format": "date-time" },
         "tags": { "type": "array", "items": { "type": "string" } },
@@ -42,6 +31,7 @@
           "items": { 
             "type": "object",
             "properties": {
+              "id": { "type": "string" },
               "text": { "type": "string" },
               "completed": { "type": "boolean" }
             }
@@ -51,12 +41,34 @@
         "ownerId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["title", "columnId", "boardId", "order", "ownerId"]
+      "required": ["title", "columnId", "ownerId"]
+    },
+    "Goal": {
+      "title": "Goal",
+      "description": "A hierarchical goal (Year -> Quarter -> Month -> Week)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "level": { "type": "string", "enum": ["year", "quarter", "month", "week"] },
+        "parentId": { "type": "string" },
+        "targetValue": { "type": "number" },
+        "currentValue": { "type": "number" },
+        "unit": { "type": "string" },
+        "updateMethod": { "type": "string", "enum": ["manual", "task-linked"] },
+        "linkedTaskIds": { "type": "array", "items": { "type": "string" } },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate": { "type": "string", "format": "date" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "ownerId", "level", "targetValue", "unit", "updateMethod"]
     }
   },
   "firestore": {
-    "/boards/{boardId}": { "schema": "Board", "description": "User boards" },
-    "/boards/{boardId}/columns/{columnId}": { "schema": "Column", "description": "Columns in a board" },
-    "/boards/{boardId}/tasks/{taskId}": { "schema": "Task", "description": "Tasks in a board" }
+    "/columns/{columnId}": { "schema": "Column", "description": "User columns" },
+    "/tasks/{taskId}": { "schema": "Task", "description": "User tasks" },
+    "/goals/{goalId}": { "schema": "Goal", "description": "User goals" }
   }
 }

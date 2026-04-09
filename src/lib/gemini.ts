@@ -27,3 +27,26 @@ export async function breakdownTask(taskTitle: string) {
     return [];
   }
 }
+
+export async function decomposeGoal(goalTitle: string, level: string, targetValue: number, unit: string) {
+  if (!ai) return null;
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Bạn là một vị sư phụ thông thái. Đệ tử có một mục tiêu lớn: "${goalTitle}" với giá trị mục tiêu là ${targetValue} ${unit} cho cấp độ ${level}.
+      Hãy giúp đệ tử chia nhỏ mục tiêu này thành các cấp độ thấp hơn (nếu là Năm thì chia thành 4 Quý, nếu là Quý thì chia thành 3 Tháng, nếu là Tháng thì chia thành 4 Tuần).
+      Trả về một mảng JSON các đối tượng, mỗi đối tượng có:
+      - title: tên mục tiêu con (ví dụ: "Quý 1: Khởi đầu nan")
+      - targetValue: giá trị mục tiêu con (số)
+      - description: lời khuyên ngắn gọn
+      Chỉ trả về JSON array, không giải thích.`,
+    });
+    const text = response.text || "";
+    const jsonMatch = text.match(/\[.*\]/s);
+    if (jsonMatch) return JSON.parse(jsonMatch[0]);
+    return null;
+  } catch (error) {
+    console.error("AI Goal Decomposition Error:", error);
+    return null;
+  }
+}

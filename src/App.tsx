@@ -31,7 +31,12 @@ import {
   MessageSquare,
   Zap,
   BarChart3,
-  LayoutDashboard
+  LayoutDashboard,
+  Trophy,
+  Target,
+  ChevronDown,
+  ChevronUp,
+  ArrowRight
 } from "lucide-react";
 import { 
   BarChart, 
@@ -79,7 +84,7 @@ import {
 } from "@dnd-kit/sortable";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { breakdownTask } from "@/src/lib/gemini";
+import { breakdownTask, decomposeGoal } from "@/src/lib/gemini";
 import ReactMarkdown from "react-markdown";
 import confetti from 'canvas-confetti';
 import { 
@@ -121,20 +126,40 @@ interface Task {
   progress: number;
   tags: string[];
   checklist: ChecklistItem[];
+  ownerId: string;
+  linkedGoalId?: string;
 }
 
 interface Column {
   id: string;
   title: string;
   color: string;
+  ownerId: string;
+}
+
+interface Goal {
+  id: string;
+  title: string;
+  description: string;
+  ownerId: string;
+  level: "year" | "quarter" | "month" | "week";
+  parentId?: string;
+  targetValue: number;
+  currentValue: number;
+  unit: string;
+  updateMethod: "manual" | "task-linked";
+  linkedTaskIds?: string[];
+  startDate: string;
+  endDate: string;
+  createdAt: any;
 }
 
 // --- Mock Data ---
 const INITIAL_COLUMNS: Column[] = [
-  { id: "todo", title: "Kinh Thư (Cần Học)", color: "border-silk" },
-  { id: "in-progress", title: "Đang Nghiên Cứu", color: "border-sage/30" },
-  { id: "review", title: "Ôn Tập Đạo Pháp", color: "border-cinnabar/20" },
-  { id: "done", title: "Công Thành Danh Toại", color: "border-sage" },
+  { id: "todo", title: "Kinh Thư (Cần Học)", color: "border-silk", ownerId: "" },
+  { id: "in-progress", title: "Đang Nghiên Cứu", color: "border-sage/30", ownerId: "" },
+  { id: "review", title: "Ôn Tập Đạo Pháp", color: "border-cinnabar/20", ownerId: "" },
+  { id: "done", title: "Công Thành Danh Toại", color: "border-sage", ownerId: "" },
 ];
 
 const INITIAL_TASKS: Task[] = [
@@ -147,7 +172,8 @@ const INITIAL_TASKS: Task[] = [
     deadline: "2026-04-12",
     progress: 0,
     tags: ["React", "Advanced"],
-    checklist: []
+    checklist: [],
+    ownerId: ""
   },
   { 
     id: "2", 
@@ -161,7 +187,8 @@ const INITIAL_TASKS: Task[] = [
     checklist: [
       { id: "c1", text: "Học 20 từ vựng mới", completed: true },
       { id: "c2", text: "Làm bài tập câu bị động", completed: false }
-    ]
+    ],
+    ownerId: ""
   },
   { 
     id: "3", 
@@ -172,7 +199,8 @@ const INITIAL_TASKS: Task[] = [
     deadline: "2026-04-08",
     progress: 80,
     tags: ["CS", "Interview"],
-    checklist: []
+    checklist: [],
+    ownerId: ""
   },
   { 
     id: "4", 
@@ -183,7 +211,8 @@ const INITIAL_TASKS: Task[] = [
     deadline: "2026-04-05",
     progress: 100,
     tags: ["Design"],
-    checklist: []
+    checklist: [],
+    ownerId: ""
   },
 ];
 
@@ -284,12 +313,116 @@ function SortableTask({ task, getStatusColor, onDelete, onOpen }: {
   );
 }
 
+// --- Goal Node Component ---
+function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedGoals, onUpdateValue, isAiLoading }: {
+  goal: Goal,
+  allGoals: Goal[],
+  onDecompose: (g: Goal) => void,
+  onToggle: (id: string) => void,
+  isExpanded: boolean,
+  expandedGoals: string[],
+  onUpdateValue: (id: string, val: number) => void,
+  isAiLoading: boolean
+}) {
+  const children = allGoals.filter(g => g.parentId === goal.id);
+  const progress = goal.targetValue > 0 ? (goal.currentValue / goal.targetValue) * 100 : 0;
+  
+  const levelColors: any = {
+    "year": "border-cinnabar text-cinnabar bg-cinnabar/5",
+    "quarter": "border-sage text-sage bg-sage/5",
+    "month": "border-ink text-ink bg-ink/5",
+    "week": "border-silk text-ink bg-silk/5"
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className={`p-6 border-l-4 ${levelColors[goal.level]} oriental-card relative group`}>
+        <div className="flex justify-between items-start">
+          <div className="space-y-2 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{goal.level}</span>
+              <h4 className="text-lg font-bold italic">{goal.title}</h4>
+            </div>
+            <p className="text-xs opacity-70">{goal.description}</p>
+            
+            <div className="flex items-center gap-4 mt-4">
+              <div className="flex-1 h-1.5 bg-silk/30 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-current transition-all duration-1000" 
+                  style={{ width: `${Math.min(progress, 100)}%` }}
+                />
+              </div>
+              <span className="text-xs font-bold">{Math.round(progress)}%</span>
+            </div>
+
+            <div className="flex items-center gap-4 mt-2">
+              <div className="flex items-center gap-2">
+                <Input 
+                  type="number" 
+                  value={goal.currentValue}
+                  onChange={(e) => onUpdateValue(goal.id, Number(e.target.value))}
+                  className="w-20 h-8 text-xs bg-white/50 border-silk rounded-none"
+                />
+                <span className="text-xs opacity-60">/ {goal.targetValue} {goal.unit}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            {goal.level !== "week" && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => onDecompose(goal)}
+                disabled={isAiLoading}
+                className="rounded-none border-current text-[10px] font-bold uppercase"
+              >
+                <Sparkles className="w-3 h-3 mr-1" /> Phân Rã AI
+              </Button>
+            )}
+            {children.length > 0 && (
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => onToggle(goal.id)}
+                className="rounded-none text-[10px] font-bold uppercase"
+              >
+                {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                {isExpanded ? "Thu Gọn" : `Xem ${children.length} Mục Tiêu Con`}
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {isExpanded && children.length > 0 && (
+        <div className="pl-8 border-l border-silk/30 space-y-4 ml-4">
+          {children.map(child => (
+            <GoalNode 
+              key={child.id} 
+              goal={child} 
+              allGoals={allGoals} 
+              onDecompose={onDecompose}
+              onToggle={onToggle}
+              isExpanded={expandedGoals.includes(child.id)}
+              expandedGoals={expandedGoals}
+              onUpdateValue={onUpdateValue}
+              isAiLoading={isAiLoading}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- Main App Component ---
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [columns, setColumns] = useState<Column[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -299,12 +432,23 @@ export default function App() {
   const [editingColumnTitle, setEditingColumnTitle] = useState("");
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [currentView, setCurrentView] = useState<"board" | "calendar" | "stats" | "ai" | "library">("board");
+  const [currentView, setCurrentView] = useState<"board" | "calendar" | "stats" | "ai" | "library" | "milestones">("board");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterPriority, setFilterPriority] = useState<string>("All");
   const [aiMessage, setAiMessage] = useState("");
   const [aiChatHistory, setAiChatHistory] = useState<{role: string, content: string}[]>([]);
   const [isAiChatLoading, setIsAiChatLoading] = useState(false);
+  const [isAddingGoal, setIsAddingGoal] = useState(false);
+  const [newGoal, setNewGoal] = useState<Partial<Goal>>({
+    level: "year",
+    updateMethod: "manual",
+    unit: "kg",
+    targetValue: 0,
+    currentValue: 0,
+    title: "",
+    description: ""
+  });
+  const [expandedGoals, setExpandedGoals] = useState<string[]>([]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -389,6 +533,52 @@ export default function App() {
 
     return () => unsubscribe();
   }, [user]);
+
+  // Firestore Goals Listener
+  useEffect(() => {
+    if (!user) {
+      setGoals([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "goals"),
+      where("ownerId", "==", user.uid),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const goalsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Goal[];
+      setGoals(goalsData);
+    }, (error) => {
+      console.error("Firestore Error Goals:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Automatic Progress Calculation for Task-Linked Goals
+  useEffect(() => {
+    if (!user || goals.length === 0 || tasks.length === 0) return;
+
+    goals.forEach(async (goal) => {
+      if (goal.updateMethod === "task-linked" && goal.linkedTaskIds && goal.linkedTaskIds.length > 0) {
+        const linkedTasks = tasks.filter(t => goal.linkedTaskIds?.includes(t.id));
+        const completedCount = linkedTasks.filter(t => t.columnId === "done").length;
+        
+        if (goal.currentValue !== completedCount) {
+          try {
+            await updateDoc(doc(db, "goals", goal.id), { currentValue: completedCount });
+          } catch (error) {
+            console.error("Auto Update Goal Error:", error);
+          }
+        }
+      }
+    });
+  }, [tasks, goals, user]);
 
   const handleLogin = async () => {
     try {
@@ -627,6 +817,78 @@ export default function App() {
     }
   };
 
+  const handleAddGoal = async () => {
+    if (!user || !newGoal.title) return;
+    try {
+      const goalData = {
+        ...newGoal,
+        ownerId: user.uid,
+        createdAt: serverTimestamp(),
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: new Date(new Date().getFullYear(), 11, 31).toISOString().split('T')[0],
+      };
+      await addDoc(collection(db, "goals"), goalData);
+      setIsAddingGoal(false);
+      setNewGoal({
+        level: "year",
+        updateMethod: "manual",
+        unit: "kg",
+        targetValue: 0,
+        currentValue: 0,
+        title: "",
+        description: ""
+      });
+    } catch (error) {
+      console.error("Add Goal Error:", error);
+    }
+  };
+
+  const handleDecomposeGoal = async (parentGoal: Goal) => {
+    setIsAiLoading(true);
+    const subGoals = await decomposeGoal(parentGoal.title, parentGoal.level, parentGoal.targetValue, parentGoal.unit);
+    if (subGoals && Array.isArray(subGoals)) {
+      const nextLevel: any = {
+        "year": "quarter",
+        "quarter": "month",
+        "month": "week"
+      }[parentGoal.level];
+
+      if (nextLevel) {
+        for (const sg of subGoals) {
+          await addDoc(collection(db, "goals"), {
+            title: sg.title,
+            description: sg.description,
+            targetValue: sg.targetValue,
+            currentValue: 0,
+            unit: parentGoal.unit,
+            level: nextLevel,
+            parentId: parentGoal.id,
+            ownerId: user.uid,
+            updateMethod: parentGoal.updateMethod,
+            createdAt: serverTimestamp(),
+            startDate: parentGoal.startDate,
+            endDate: parentGoal.endDate
+          });
+        }
+      }
+    }
+    setIsAiLoading(false);
+  };
+
+  const toggleGoalExpansion = (goalId: string) => {
+    setExpandedGoals(prev => 
+      prev.includes(goalId) ? prev.filter(id => id !== goalId) : [...prev, goalId]
+    );
+  };
+
+  const updateGoalValue = async (goalId: string, newValue: number) => {
+    try {
+      await updateDoc(doc(db, "goals", goalId), { currentValue: newValue });
+    } catch (error) {
+      console.error("Update Goal Error:", error);
+    }
+  };
+
   const addNewTask = async (columnId: string) => {
     if (!user) return;
     const newTask = {
@@ -769,6 +1031,15 @@ export default function App() {
             }`}
           >
             <BarChart3 className="w-4 h-4" /> Thống Kê Đạo Pháp
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={() => setCurrentView("milestones")}
+            className={`w-full justify-start gap-4 rounded-none transition-all ${
+              currentView === "milestones" ? "text-sage bg-sage/5 border-l-2 border-sage" : "text-ink/60 hover:text-sage hover:bg-sage/5"
+            }`}
+          >
+            <Trophy className="w-4 h-4" /> Đại Lộ Công Danh
           </Button>
           <Button 
             variant="ghost" 
@@ -1140,6 +1411,43 @@ export default function App() {
             </div>
           )}
 
+          {currentView === "milestones" && (
+            <div className="flex-1 flex flex-col relative z-10 space-y-8 overflow-hidden">
+              <div className="flex justify-between items-center">
+                <div className="space-y-1">
+                  <h2 className="text-2xl font-bold italic tracking-widest">Đại Lộ Công Danh</h2>
+                  <p className="text-xs text-sage italic">Theo dõi lộ trình tu luyện từ Năm đến Tuần</p>
+                </div>
+                <Button onClick={() => setIsAddingGoal(true)} className="ink-button rounded-none gap-2">
+                  <Plus className="w-4 h-4" /> Thiết Lập Đại Nguyện
+                </Button>
+              </div>
+
+              <ScrollArea className="flex-1">
+                <div className="space-y-6 pb-20">
+                  {goals.filter(g => !g.parentId).map(yearGoal => (
+                    <GoalNode 
+                      key={yearGoal.id} 
+                      goal={yearGoal} 
+                      allGoals={goals} 
+                      onDecompose={handleDecomposeGoal}
+                      onToggle={toggleGoalExpansion}
+                      isExpanded={expandedGoals.includes(yearGoal.id)}
+                      expandedGoals={expandedGoals}
+                      onUpdateValue={updateGoalValue}
+                      isAiLoading={isAiLoading}
+                    />
+                  ))}
+                  {goals.filter(g => !g.parentId).length === 0 && (
+                    <div className="text-center py-20 border-2 border-dashed border-silk/30 italic text-sage/40">
+                      Chưa có đại nguyện nào được thiết lập. Hãy bắt đầu hành trình của bạn.
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+          )}
+
           {currentView === "ai" && (
             <div className="flex-1 flex flex-col relative z-10 bg-white/40 border border-silk oriental-card overflow-hidden">
               <ScrollArea className="flex-1 p-8">
@@ -1227,6 +1535,77 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {/* Add Goal Dialog */}
+      <Dialog open={isAddingGoal} onOpenChange={setIsAddingGoal}>
+        <DialogContent className="bg-paper border-silk rounded-none">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold italic">Thiết Lập Đại Nguyện</DialogTitle>
+            <DialogDescription className="text-xs italic">Đặt mục tiêu lớn để bắt đầu con đường tu luyện.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest">Tên Đại Nguyện</label>
+              <Input 
+                placeholder="Ví dụ: Giảm 20kg trong năm 2026"
+                value={newGoal.title}
+                onChange={(e) => setNewGoal({...newGoal, title: e.target.value})}
+                className="bg-white/50 border-silk rounded-none italic"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest">Cấp Độ</label>
+                <select 
+                  value={newGoal.level}
+                  onChange={(e) => setNewGoal({...newGoal, level: e.target.value as any})}
+                  className="w-full bg-white/50 border border-silk p-2 text-sm focus:ring-0 rounded-none"
+                >
+                  <option value="year">Năm</option>
+                  <option value="quarter">Quý</option>
+                  <option value="month">Tháng</option>
+                  <option value="week">Tuần</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest">Đơn Vị</label>
+                <Input 
+                  placeholder="kg, trang, giờ..."
+                  value={newGoal.unit}
+                  onChange={(e) => setNewGoal({...newGoal, unit: e.target.value})}
+                  className="bg-white/50 border-silk rounded-none"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest">Mục Tiêu (Con số)</label>
+                <Input 
+                  type="number"
+                  value={newGoal.targetValue}
+                  onChange={(e) => setNewGoal({...newGoal, targetValue: Number(e.target.value)})}
+                  className="bg-white/50 border-silk rounded-none"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest">Phương Thức Cập Nhật</label>
+                <select 
+                  value={newGoal.updateMethod}
+                  onChange={(e) => setNewGoal({...newGoal, updateMethod: e.target.value as any})}
+                  className="w-full bg-white/50 border border-silk p-2 text-sm focus:ring-0 rounded-none"
+                >
+                  <option value="manual">Thủ công</option>
+                  <option value="task-linked">Liên kết thẻ Kanban</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsAddingGoal(false)} className="rounded-none">Hủy</Button>
+            <Button onClick={handleAddGoal} className="ink-button rounded-none">Xác Nhận</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Task Detail Modal - Premium Oriental Style */}
       <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
@@ -1373,6 +1752,34 @@ export default function App() {
                             className="bg-transparent border-none text-sm font-bold focus:ring-0"
                           />
                         </div>
+                      </div>
+
+                      <Separator className="bg-silk/50" />
+
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold text-sage uppercase tracking-widest">Liên Kết Đại Nguyện</p>
+                        <select 
+                          value={selectedTask.linkedGoalId || ""}
+                          onChange={(e) => {
+                            const goalId = e.target.value;
+                            updateTask({ linkedGoalId: goalId });
+                            
+                            // Also update the goal's linkedTaskIds
+                            if (goalId) {
+                              const goal = goals.find(g => g.id === goalId);
+                              if (goal) {
+                                const newLinkedTaskIds = [...(goal.linkedTaskIds || []), selectedTask.id];
+                                updateDoc(doc(db, "goals", goalId), { linkedTaskIds: Array.from(new Set(newLinkedTaskIds)) });
+                              }
+                            }
+                          }}
+                          className="w-full bg-transparent border-none text-xs font-bold text-sage focus:ring-0"
+                        >
+                          <option value="">Không liên kết</option>
+                          {goals.map(g => (
+                            <option key={g.id} value={g.id}>{g.title} ({g.level})</option>
+                          ))}
+                        </select>
                       </div>
 
                       <Separator className="bg-silk/50" />
