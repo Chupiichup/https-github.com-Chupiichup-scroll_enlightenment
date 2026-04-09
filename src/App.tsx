@@ -245,6 +245,17 @@ function SortableTask({ task, getStatusColor, onDelete, onOpen }: {
           <Button 
             variant="ghost" 
             size="icon" 
+            className="w-6 h-6 text-sage hover:bg-sage/10"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(task);
+            }}
+          >
+            <Settings className="w-3 h-3" />
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="icon" 
             className="w-6 h-6 text-cinnabar hover:bg-cinnabar/10"
             onClick={(e) => {
               e.stopPropagation();
@@ -314,7 +325,7 @@ function SortableTask({ task, getStatusColor, onDelete, onOpen }: {
 }
 
 // --- Goal Node Component ---
-function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedGoals, onUpdateValue, isAiLoading }: {
+function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedGoals, onUpdateValue, isAiLoading, onDelete, onEdit }: {
   goal: Goal,
   allGoals: Goal[],
   onDecompose: (g: Goal) => void,
@@ -322,7 +333,9 @@ function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedG
   isExpanded: boolean,
   expandedGoals: string[],
   onUpdateValue: (id: string, val: number) => void,
-  isAiLoading: boolean
+  isAiLoading: boolean,
+  onDelete: (id: string) => void,
+  onEdit: (g: Goal) => void
 }) {
   const children = allGoals.filter(g => g.parentId === goal.id);
   const progress = goal.targetValue > 0 ? (goal.currentValue / goal.targetValue) * 100 : 0;
@@ -374,6 +387,24 @@ function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedG
           </div>
 
           <div className="flex flex-col gap-2">
+            <div className="flex gap-1 mb-1">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => onEdit(goal)}
+                className="w-8 h-8 rounded-none text-sage hover:bg-sage/5"
+              >
+                <Settings className="w-3 h-3" />
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => onDelete(goal.id)}
+                className="w-8 h-8 rounded-none text-cinnabar hover:bg-cinnabar/5"
+              >
+                <Trash2 className="w-3 h-3" />
+              </Button>
+            </div>
             {goal.level !== "week" && (
               <Button 
                 variant="outline" 
@@ -413,6 +444,8 @@ function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedG
               expandedGoals={expandedGoals}
               onUpdateValue={onUpdateValue}
               isAiLoading={isAiLoading}
+              onDelete={onDelete}
+              onEdit={onEdit}
             />
           ))}
         </div>
@@ -443,6 +476,9 @@ export default function App() {
   const [aiMessage, setAiMessage] = useState("");
   const [aiChatHistory, setAiChatHistory] = useState<{role: string, content: string}[]>([]);
   const [isAiChatLoading, setIsAiChatLoading] = useState(false);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
+  const [isEditingGoal, setIsEditingGoal] = useState(false);
   const [isAddingGoal, setIsAddingGoal] = useState(false);
   const [newGoal, setNewGoal] = useState<Partial<Goal>>({
     level: "year",
@@ -510,8 +546,7 @@ export default function App() {
 
     const q = query(
       collection(db, "columns"),
-      where("ownerId", "==", user.uid),
-      orderBy("createdAt", "asc")
+      where("ownerId", "==", user.uid)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -548,8 +583,7 @@ export default function App() {
 
     const q = query(
       collection(db, "goals"),
-      where("ownerId", "==", user.uid),
-      orderBy("createdAt", "desc")
+      where("ownerId", "==", user.uid)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -901,6 +935,34 @@ export default function App() {
     );
   };
 
+  const deleteGoal = async (goalId: string) => {
+    if (!user) return;
+    if (!confirm("Bạn có chắc chắn muốn xóa mục tiêu này? Tất cả mục tiêu con cũng sẽ bị ảnh hưởng.")) return;
+    try {
+      await deleteDoc(doc(db, "goals", goalId));
+      // Optionally delete children or just leave them orphaned (or handle in rules)
+    } catch (error) {
+      console.error("Delete Goal Error:", error);
+    }
+  };
+
+  const handleEditGoal = async () => {
+    if (!user || !editingGoal) return;
+    try {
+      await updateDoc(doc(db, "goals", editingGoal.id), {
+        title: editingGoal.title,
+        description: editingGoal.description,
+        targetValue: editingGoal.targetValue,
+        unit: editingGoal.unit,
+        level: editingGoal.level
+      });
+      setIsEditingGoal(false);
+      setEditingGoal(null);
+    } catch (error) {
+      console.error("Update Goal Error:", error);
+    }
+  };
+
   const updateGoalValue = async (goalId: string, newValue: number) => {
     try {
       await updateDoc(doc(db, "goals", goalId), { currentValue: newValue });
@@ -1126,19 +1188,21 @@ export default function App() {
                 <p className="text-xs font-bold">{user?.displayName || "Học Giả"}</p>
                 <p className="text-[9px] text-sage uppercase tracking-tighter">Học Giả</p>
               </div>
-              <div className="w-10 h-10 rounded-full border border-silk p-0.5 group relative cursor-pointer">
+              <div className="w-10 h-10 rounded-full border border-silk p-0.5 relative cursor-pointer" onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}>
                 <div className="w-full h-full rounded-full bg-sage/10 flex items-center justify-center overflow-hidden">
-                  <img src={user?.photoURL || "https://picsum.photos/seed/oriental/100/100"} alt="User" referrerPolicy="no-referrer" />
+                  <img src={user?.photoURL || "https://images.unsplash.com/photo-1528164344705-47542687000d?auto=format&fit=crop&w=100&h=100"} alt="User" referrerPolicy="no-referrer" />
                 </div>
-                <div className="absolute top-full right-0 mt-2 w-32 bg-white border border-silk shadow-xl hidden group-hover:block z-50">
-                  <Button 
-                    variant="ghost" 
-                    onClick={handleLogout}
-                    className="w-full justify-start text-xs text-cinnabar hover:bg-cinnabar/5 rounded-none"
-                  >
-                    Đăng Xuất
-                  </Button>
-                </div>
+                {isAccountMenuOpen && (
+                  <div className="absolute top-full right-0 mt-2 w-32 bg-white border border-silk shadow-xl z-50">
+                    <Button 
+                      variant="ghost" 
+                      onClick={handleLogout}
+                      className="w-full justify-start text-xs text-cinnabar hover:bg-cinnabar/5 rounded-none"
+                    >
+                      Đăng Xuất
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1456,6 +1520,11 @@ export default function App() {
                       expandedGoals={expandedGoals}
                       onUpdateValue={updateGoalValue}
                       isAiLoading={isAiLoading}
+                      onDelete={deleteGoal}
+                      onEdit={(g) => {
+                        setEditingGoal(g);
+                        setIsEditingGoal(true);
+                      }}
                     />
                   ))}
                   {goals.filter(g => !g.parentId).length === 0 && (
@@ -1556,7 +1625,61 @@ export default function App() {
         </div>
       </main>
 
-      {/* Add Goal Dialog */}
+      {/* Edit Goal Dialog */}
+      <Dialog open={isEditingGoal} onOpenChange={setIsEditingGoal}>
+        <DialogContent className="bg-paper border-silk rounded-none">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold italic">Chỉnh Sửa Đại Nguyện</DialogTitle>
+            <DialogDescription className="text-xs italic">Cập nhật lại con đường tu luyện của bạn.</DialogDescription>
+          </DialogHeader>
+          {editingGoal && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest">Tên Đại Nguyện</label>
+                <Input 
+                  value={editingGoal.title}
+                  onChange={(e) => setEditingGoal({...editingGoal, title: e.target.value})}
+                  className="bg-white/50 border-silk rounded-none italic"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest">Mô Tả</label>
+                <Textarea 
+                  value={editingGoal.description}
+                  onChange={(e) => setEditingGoal({...editingGoal, description: e.target.value})}
+                  className="bg-white/50 border-silk rounded-none text-xs"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest">Mục Tiêu (Con số)</label>
+                  <Input 
+                    type="text"
+                    value={editingGoal.targetValue?.toLocaleString('vi-VN')}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, "");
+                      setEditingGoal({...editingGoal, targetValue: val ? parseInt(val, 10) : 0});
+                    }}
+                    className="bg-white/50 border-silk rounded-none"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest">Đơn Vị</label>
+                  <Input 
+                    value={editingGoal.unit}
+                    onChange={(e) => setEditingGoal({...editingGoal, unit: e.target.value})}
+                    className="bg-white/50 border-silk rounded-none"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsEditingGoal(false)} className="rounded-none">Hủy</Button>
+            <Button onClick={handleEditGoal} className="bg-sage text-paper hover:bg-sage/90 rounded-none">Cập Nhật</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={isAddingGoal} onOpenChange={setIsAddingGoal}>
         <DialogContent className="bg-paper border-silk rounded-none">
           <DialogHeader>
