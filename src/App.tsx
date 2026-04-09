@@ -188,7 +188,12 @@ const INITIAL_TASKS: Task[] = [
 ];
 
 // --- Sortable Task Component ---
-function SortableTask({ task, getStatusColor }: { task: Task, getStatusColor: (d: string) => string }) {
+function SortableTask({ task, getStatusColor, onDelete, onOpen }: { 
+  task: Task, 
+  getStatusColor: (d: string) => string,
+  onDelete: (id: string) => void,
+  onOpen: (task: Task) => void
+}) {
   const {
     attributes,
     listeners,
@@ -201,58 +206,79 @@ function SortableTask({ task, getStatusColor }: { task: Task, getStatusColor: (d
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.3 : 1,
   };
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <Card className="oriental-card border-none group overflow-hidden mb-3">
-        <CardHeader className="p-4 pb-2 space-y-2">
-          <div className="flex justify-between items-start">
-            <div className="flex flex-wrap gap-1">
-              {task.tags.map(tag => (
-                <Badge key={tag} variant="outline" className="text-[9px] px-1.5 py-0 font-medium border-silk text-sage">
-                  {tag}
-                </Badge>
-              ))}
+    <div ref={setNodeRef} style={style}>
+      <Card className="oriental-card border-none group overflow-hidden mb-3 relative">
+        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex gap-1">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="w-6 h-6 text-cinnabar hover:bg-cinnabar/10"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(task.id);
+            }}
+          >
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </div>
+        
+        <div 
+          className="cursor-grab active:cursor-grabbing" 
+          {...attributes} 
+          {...listeners}
+          onClick={() => onOpen(task)}
+        >
+          <CardHeader className="p-4 pb-2 space-y-2">
+            <div className="flex justify-between items-start">
+              <div className="flex flex-wrap gap-1">
+                {task.tags.map(tag => (
+                  <Badge key={tag} variant="outline" className="text-[9px] px-1.5 py-0 font-medium border-silk text-sage">
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+              <span className={`cinnabar-seal ${
+                task.priority === "Urgent" ? "opacity-100" : "opacity-60"
+              }`}>
+                {task.priority}
+              </span>
             </div>
-            <span className={`cinnabar-seal ${
-              task.priority === "Urgent" ? "opacity-100" : "opacity-60"
-            }`}>
-              {task.priority}
-            </span>
-          </div>
-          <CardTitle className="text-sm font-bold leading-tight group-hover:text-sage transition-colors">
-            {task.title}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-4 pt-0 space-y-3">
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-[10px] font-medium text-sage/60">
-              <span>Tiến độ</span>
-              <span>{task.progress}%</span>
-            </div>
-            <div className="h-1 w-full bg-silk/30 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-sage transition-all duration-500" 
-                style={{ width: `${task.progress}%` }}
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-sm border text-[10px] font-bold ${getStatusColor(task.deadline)}`}>
-              <Clock className="w-3 h-3" />
-              {new Date(task.deadline).toLocaleDateString("vi-VN", { day: '2-digit', month: '2-digit' })}
-            </div>
-            
-            <div className="flex -space-x-2">
-              <div className="w-5 h-5 rounded-full border border-silk bg-paper flex items-center justify-center text-[8px] font-bold text-sage">
-                印
+            <CardTitle className="text-sm font-bold leading-tight group-hover:text-sage transition-colors pr-6">
+              {task.title}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 space-y-3">
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-[10px] font-medium text-sage/60">
+                <span>Tiến độ</span>
+                <span>{task.progress}%</span>
+              </div>
+              <div className="h-1 w-full bg-silk/30 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-sage transition-all duration-500" 
+                  style={{ width: `${task.progress}%` }}
+                />
               </div>
             </div>
-          </div>
-        </CardContent>
+
+            <div className="flex items-center justify-between">
+              <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-sm border text-[10px] font-bold ${getStatusColor(task.deadline)}`}>
+                <Clock className="w-3 h-3" />
+                {new Date(task.deadline).toLocaleDateString("vi-VN", { day: '2-digit', month: '2-digit' })}
+              </div>
+              
+              <div className="flex -space-x-2">
+                <div className="w-5 h-5 rounded-full border border-silk bg-paper flex items-center justify-center text-[8px] font-bold text-sage">
+                  印
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </div>
       </Card>
     </div>
   );
@@ -263,9 +289,14 @@ export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [columns] = useState(INITIAL_COLUMNS);
+  const [columns, setColumns] = useState<Column[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isAddingColumn, setIsAddingColumn] = useState(false);
+  const [newColumnTitle, setNewColumnTitle] = useState("");
+  const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
+  const [editingColumnTitle, setEditingColumnTitle] = useState("");
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [currentView, setCurrentView] = useState<"board" | "calendar" | "stats" | "ai" | "library">("board");
@@ -276,7 +307,11 @@ export default function App() {
   const [isAiChatLoading, setIsAiChatLoading] = useState(false);
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     })
@@ -311,7 +346,45 @@ export default function App() {
       })) as Task[];
       setTasks(tasksData);
     }, (error) => {
-      console.error("Firestore Error:", error);
+      console.error("Firestore Error Tasks:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Firestore Columns Listener
+  useEffect(() => {
+    if (!user) {
+      setColumns([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "columns"),
+      where("ownerId", "==", user.uid),
+      orderBy("createdAt", "asc")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (snapshot.empty) {
+        // Initialize default columns if none exist
+        INITIAL_COLUMNS.forEach(async (col, index) => {
+          await setDoc(doc(db, "columns", col.id), {
+            ...col,
+            ownerId: user.uid,
+            createdAt: serverTimestamp(),
+            order: index
+          });
+        });
+        return;
+      }
+      const columnsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Column[];
+      setColumns(columnsData);
+    }, (error) => {
+      console.error("Firestore Error Columns:", error);
     });
 
     return () => unsubscribe();
@@ -379,7 +452,9 @@ export default function App() {
   };
 
   const handleDragStart = (event: any) => {
-    setActiveId(event.active.id);
+    const { active } = event;
+    setActiveId(active.id);
+    setActiveTask(tasks.find(t => t.id === active.id) || null);
   };
 
   const handleDragOver = (event: any) => {
@@ -398,12 +473,12 @@ export default function App() {
 
     // Dropping a Task over another Task
     if (isActiveATask && isOverATask) {
-      const activeIndex = tasks.findIndex((t) => t.id === activeId);
-      const overIndex = tasks.findIndex((t) => t.id === overId);
+      const activeTask = tasks.find((t) => t.id === activeId);
+      const overTask = tasks.find((t) => t.id === overId);
 
-      if (tasks[activeIndex].columnId !== tasks[overIndex].columnId) {
+      if (activeTask && overTask && activeTask.columnId !== overTask.columnId) {
         updateDoc(doc(db, "tasks", activeId as string), {
-          columnId: tasks[overIndex].columnId
+          columnId: overTask.columnId
         });
       }
     }
@@ -411,9 +486,12 @@ export default function App() {
     // Dropping a Task over a Column
     const isOverAColumn = columns.some((c) => c.id === overId);
     if (isActiveATask && isOverAColumn) {
-      updateDoc(doc(db, "tasks", activeId as string), {
-        columnId: overId as string
-      });
+      const activeTask = tasks.find((t) => t.id === activeId);
+      if (activeTask && activeTask.columnId !== overId) {
+        updateDoc(doc(db, "tasks", activeId as string), {
+          columnId: overId as string
+        });
+      }
     }
   };
 
@@ -499,6 +577,53 @@ export default function App() {
       console.error(error);
     } finally {
       setIsAiChatLoading(false);
+    }
+  };
+
+  const addNewColumn = async () => {
+    if (!user || !newColumnTitle.trim()) return;
+    const id = Math.random().toString(36).substr(2, 9);
+    const newCol = {
+      id,
+      title: newColumnTitle,
+      color: "border-silk",
+      ownerId: user.uid,
+      createdAt: serverTimestamp(),
+      order: columns.length
+    };
+    try {
+      await setDoc(doc(db, "columns", id), newCol);
+      setNewColumnTitle("");
+      setIsAddingColumn(false);
+    } catch (error) {
+      console.error("Add Column Error:", error);
+    }
+  };
+
+  const updateColumnTitle = async (columnId: string) => {
+    if (!user || !editingColumnTitle.trim()) return;
+    try {
+      await updateDoc(doc(db, "columns", columnId), { title: editingColumnTitle });
+      setEditingColumnId(null);
+      setEditingColumnTitle("");
+    } catch (error) {
+      console.error("Update Column Error:", error);
+    }
+  };
+
+  const deleteColumn = async (columnId: string) => {
+    if (!user) return;
+    if (!confirm("Bạn có chắc chắn muốn xóa cột này? Tất cả mục tiêu trong cột cũng sẽ bị xóa.")) return;
+    try {
+      // Delete tasks in column
+      const tasksInCol = tasks.filter(t => t.columnId === columnId);
+      for (const task of tasksInCol) {
+        await deleteDoc(doc(db, "tasks", task.id));
+      }
+      // Delete column
+      await deleteDoc(doc(db, "columns", columnId));
+    } catch (error) {
+      console.error("Delete Column Error:", error);
     }
   };
 
@@ -741,7 +866,7 @@ export default function App() {
             <div>
               <div className="flex items-center gap-3 mb-1">
                 <h2 className="text-3xl font-bold tracking-tight">
-                  {currentView === "board" && "Mục Tiêu Tu Luyện"}
+                  {currentView === "board" && "Bảng Đạo Pháp"}
                   {currentView === "calendar" && "Lịch Trình Tu Luyện"}
                   {currentView === "stats" && "Thống Kê Đạo Pháp"}
                   {currentView === "ai" && "AI Tiên Tri Tư Vấn"}
@@ -759,7 +884,30 @@ export default function App() {
             </div>
             {currentView === "board" && (
               <div className="flex gap-4">
-                <Button onClick={() => addNewTask("todo")} className="ink-button gap-2 rounded-none shadow-lg">
+                <Dialog open={isAddingColumn} onOpenChange={setIsAddingColumn}>
+                  <Button variant="outline" className="border-silk text-sage gap-2 rounded-none" onClick={() => setIsAddingColumn(true)}>
+                    <Plus className="w-4 h-4" /> Thêm Cột Mới
+                  </Button>
+                  <DialogContent className="oriental-card border-silk">
+                    <DialogHeader>
+                      <DialogTitle>Thêm Cột Đạo Pháp Mới</DialogTitle>
+                      <DialogDescription>Đặt tên cho giai đoạn tu luyện mới của bạn.</DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                      <Input 
+                        placeholder="Tên cột (ví dụ: Đang Thử Nghiệm)" 
+                        value={newColumnTitle}
+                        onChange={(e) => setNewColumnTitle(e.target.value)}
+                        className="border-silk focus-visible:ring-sage rounded-none"
+                      />
+                    </div>
+                    <DialogFooter>
+                      <Button variant="ghost" onClick={() => setIsAddingColumn(false)}>Hủy</Button>
+                      <Button onClick={addNewColumn} className="ink-button rounded-none">Khởi Tạo</Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+                <Button onClick={() => addNewTask(columns[0]?.id || "todo")} className="ink-button gap-2 rounded-none shadow-lg">
                   <Plus className="w-4 h-4" /> Khởi Tạo Mục Tiêu
                 </Button>
               </div>
@@ -780,15 +928,39 @@ export default function App() {
                     <div key={column.id} className="w-80 flex-shrink-0 flex flex-col gap-5">
                       <div className="flex items-center justify-between px-3">
                         <div className="flex items-center gap-3">
-                          <div className={`w-2 h-2 rounded-full ${
-                            column.id === 'todo' ? 'bg-silk' :
-                            column.id === 'in-progress' ? 'bg-sage' :
-                            column.id === 'review' ? 'bg-cinnabar' : 'bg-sage'
-                          }`} />
-                          <h3 className="font-bold text-ink/80 text-sm uppercase tracking-widest">{column.title}</h3>
+                          <div className={`w-2 h-2 rounded-full bg-sage`} />
+                          {editingColumnId === column.id ? (
+                            <Input 
+                              autoFocus
+                              value={editingColumnTitle}
+                              onChange={(e) => setEditingColumnTitle(e.target.value)}
+                              onBlur={() => updateColumnTitle(column.id)}
+                              onKeyDown={(e) => e.key === 'Enter' && updateColumnTitle(column.id)}
+                              className="h-7 py-0 px-2 text-sm font-bold border-silk focus-visible:ring-sage rounded-none w-40"
+                            />
+                          ) : (
+                            <h3 
+                              className="font-bold text-ink/80 text-sm uppercase tracking-widest cursor-pointer hover:text-sage"
+                              onClick={() => {
+                                setEditingColumnId(column.id);
+                                setEditingColumnTitle(column.title);
+                              }}
+                            >
+                              {column.title}
+                            </h3>
+                          )}
                           <span className="text-[10px] font-serif italic text-sage">({tasks.filter(t => t.columnId === column.id).length})</span>
                         </div>
-                        <MoreHorizontal className="w-4 h-4 text-silk cursor-pointer hover:text-sage" />
+                        <div className="flex gap-1">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="w-6 h-6 text-silk hover:text-cinnabar"
+                            onClick={() => deleteColumn(column.id)}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
                       </div>
 
                       <div className={`flex-1 rounded-sm p-4 bg-white/30 border-t-2 ${column.color} space-y-4 min-h-[150px]`}>
@@ -799,25 +971,28 @@ export default function App() {
                           {filteredTasks
                             .filter((task) => task.columnId === column.id)
                             .map((task) => (
-                              <div key={task.id} onClick={() => openTaskDetail(task)}>
-                                <SortableTask task={task} getStatusColor={getStatusColor} />
-                              </div>
+                              <SortableTask 
+                                key={task.id} 
+                                task={task} 
+                                getStatusColor={getStatusColor}
+                                onDelete={deleteTask}
+                                onOpen={openTaskDetail}
+                              />
                             ))}
                         </SortableContext>
-                        
                         <Button 
                           variant="ghost" 
+                          className="w-full justify-start gap-2 text-xs text-sage/60 hover:text-sage hover:bg-sage/5 border border-dashed border-silk/50 rounded-none h-10"
                           onClick={() => addNewTask(column.id)}
-                          className="w-full justify-start gap-2 text-sage/60 hover:text-sage hover:bg-white/50 h-10 text-xs italic font-medium rounded-none border border-dashed border-silk/50"
                         >
-                          <Plus className="w-3.5 h-3.5" /> Thêm thẻ mới...
+                          <Plus className="w-3 h-3" /> Thêm thẻ mới...
                         </Button>
                       </div>
                     </div>
                   ))}
                 </div>
               </ScrollArea>
-
+              
               <DragOverlay dropAnimation={{
                 sideEffects: defaultDropAnimationSideEffects({
                   styles: {
@@ -827,11 +1002,13 @@ export default function App() {
                   },
                 }),
               }}>
-                {activeId ? (
-                  <div className="w-80 opacity-90 scale-105 rotate-2">
+                {activeId && activeTask ? (
+                  <div className="w-80">
                     <SortableTask 
-                      task={tasks.find(t => t.id === activeId)!} 
-                      getStatusColor={getStatusColor} 
+                      task={activeTask} 
+                      getStatusColor={getStatusColor}
+                      onDelete={deleteTask}
+                      onOpen={openTaskDetail}
                     />
                   </div>
                 ) : null}

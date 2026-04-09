@@ -1,8 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
 
 export async function breakdownTask(taskTitle: string) {
+  if (!ai) {
+    console.warn("Gemini API Key is missing. AI features are disabled.");
+    return [];
+  }
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
