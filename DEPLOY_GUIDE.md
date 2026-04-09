@@ -1,51 +1,28 @@
-# Hướng dẫn Deploy "Một Lần Duy Nhất" (Không cần cấp quyền GitHub)
+# Hướng dẫn Cấu hình AI cho GitHub Pages
 
-GitHub chặn AI thay đổi file hệ thống (`.github/workflows/`) để bảo mật. Để giải quyết **DỨT ĐIỂM** việc phải tạo lại file hay cấp quyền rắc rối, tôi khuyên bạn nên dùng **Vercel**.
+Vì bạn sử dụng GitHub Pages, bạn cần cung cấp "Chìa khóa AI" (Gemini API Key) thủ công để tính năng Phân rã AI hoạt động.
 
-### Cách 1: Dùng Vercel (Khuyên dùng - Tự động 100%, không cần file config)
-Đây là cách các lập trình viên chuyên nghiệp thường dùng cho React:
-1. Truy cập [Vercel.com](https://vercel.com) và đăng nhập bằng tài khoản GitHub của bạn.
-2. Nhấn **"Add New"** -> **"Project"**.
-3. Chọn Repository này từ danh sách GitHub của bạn.
-4. Nhấn **"Deploy"**.
-5. **Xong!** Từ nay về sau, mỗi khi bạn nhấn **"Commit & Push"** ở AI Studio, Vercel sẽ tự động thấy code mới và cập nhật trang web cho bạn. Bạn không cần file `deploy.yml`, không cần cấp quyền Actions.
+### Bước 1: Lấy Gemini API Key (Miễn phí)
+1. Truy cập [Google AI Studio](https://aistudio.google.com/app/apikey).
+2. Đăng nhập bằng tài khoản Google của bạn.
+3. Nhấn nút **"Create API key"**.
+4. Copy mã khóa vừa tạo (có dạng `AIza...`).
+
+### Bước 2: Cấu hình trên GitHub (Để AI hoạt động vĩnh viễn)
+1. Vào Repository của bạn trên GitHub.
+2. Chọn tab **Settings** -> **Secrets and variables** -> **Actions**.
+3. Nhấn nút **"New repository secret"**.
+4. Ô **Name**: Nhập chính xác `GEMINI_API_KEY`.
+5. Ô **Secret**: Dán mã khóa bạn vừa copy ở Bước 1 vào.
+6. Nhấn **Add secret**.
+
+### Bước 3: Cập nhật lại trang web
+Sau khi thêm Secret, bạn cần chạy lại bản build:
+1. Vào tab **Actions** trên GitHub.
+2. Chọn workflow **Deploy to GitHub Pages**.
+3. Nhấn **Run workflow** -> **Run workflow**.
 
 ---
 
-### Cách 2: Nếu bạn vẫn muốn dùng GitHub Pages
-Nếu bạn không muốn dùng Vercel, bạn buộc phải làm thủ công trên GitHub mỗi khi file bị mất:
-1. Vào tab **Actions** trên GitHub.
-2. Nếu không thấy workflow nào, hãy tạo lại file `.github/workflows/deploy.yml` với nội dung dưới đây.
-3. **Lưu ý:** AI Studio có thể xóa file này trên GitHub mỗi khi bạn Push code (do cơ chế đồng bộ). Đây là lý do tôi khuyên bạn dùng **Cách 1**.
-
-#### Nội dung file `deploy.yml`:
-```yaml
-name: Deploy to GitHub Pages
-on:
-  push:
-    branches: ["main"]
-  workflow_dispatch:
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-      - run: npm install
-      - run: npm run build
-      - uses: actions/configure-pages@v4
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: './dist'
-      - uses: actions/deploy-pages@v4
-```
+### Lưu ý về Đăng xuất
+Tôi đã cập nhật nút Đăng xuất to hơn và dễ bấm hơn. Bạn chỉ cần click vào ảnh đại diện, một menu lớn sẽ hiện ra, nhấn vào dòng **"Đăng Xuất"** màu đỏ để thoát.

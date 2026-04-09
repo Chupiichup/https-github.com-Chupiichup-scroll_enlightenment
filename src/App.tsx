@@ -919,7 +919,7 @@ export default function App() {
           setExpandedGoals(prev => [...prev, parentGoal.id]);
         }
       } else {
-        alert("AI không thể phân rã mục tiêu này. Vui lòng thử lại với tên mục tiêu rõ ràng hơn.");
+        alert("AI không thể phân rã mục tiêu này. Có thể do lỗi định dạng kết quả hoặc thiếu API Key. Vui lòng kiểm tra lại cấu hình hoặc thử với tên mục tiêu rõ ràng hơn.");
       }
     } catch (error) {
       console.error("Decompose Error:", error);
@@ -1193,13 +1193,20 @@ export default function App() {
                   <img src={user?.photoURL || "https://images.unsplash.com/photo-1528164344705-47542687000d?auto=format&fit=crop&w=100&h=100"} alt="User" referrerPolicy="no-referrer" />
                 </div>
                 {isAccountMenuOpen && (
-                  <div className="absolute top-full right-0 mt-2 w-32 bg-white border border-silk shadow-xl z-50">
+                  <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-silk shadow-2xl z-50 py-2">
+                    <div className="px-4 py-2 border-b border-silk/30 mb-2">
+                      <p className="text-[10px] text-sage uppercase font-bold">Tài khoản</p>
+                      <p className="text-xs truncate font-serif italic">{user?.email}</p>
+                    </div>
                     <Button 
                       variant="ghost" 
-                      onClick={handleLogout}
-                      className="w-full justify-start text-xs text-cinnabar hover:bg-cinnabar/5 rounded-none"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleLogout();
+                      }}
+                      className="w-full justify-start text-sm text-cinnabar hover:bg-cinnabar/5 rounded-none h-12 px-4 font-bold"
                     >
-                      Đăng Xuất
+                      <X className="w-4 h-4 mr-2" /> Đăng Xuất
                     </Button>
                   </div>
                 )}

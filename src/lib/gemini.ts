@@ -29,7 +29,10 @@ export async function breakdownTask(taskTitle: string) {
 }
 
 export async function decomposeGoal(goalTitle: string, level: string, targetValue: number, unit: string) {
-  if (!ai) return null;
+  if (!ai) {
+    console.warn("Gemini API Key is missing. AI features are disabled.");
+    return null;
+  }
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -37,16 +40,27 @@ export async function decomposeGoal(goalTitle: string, level: string, targetValu
       Hãy giúp đệ tử chia nhỏ mục tiêu này thành các cấp độ thấp hơn (nếu là Năm thì chia thành 4 Quý, nếu là Quý thì chia thành 3 Tháng, nếu là Tháng thì chia thành 4 Tuần).
       
       YÊU CẦU QUAN TRỌNG:
-      1. Trả về DUY NHẤT một mảng JSON các đối tượng.
+      1. Trả về một mảng JSON các đối tượng.
       2. Mỗi đối tượng PHẢI có:
          - "title": tên mục tiêu con (ví dụ: "Quý 1: Khởi đầu nan")
          - "targetValue": giá trị mục tiêu con (PHẢI là số, tổng các targetValue của con nên xấp xỉ bằng targetValue của cha)
          - "description": lời khuyên ngắn gọn
-      3. KHÔNG có văn bản giải thích, KHÔNG có markdown code blocks. Chỉ trả về mảng JSON bắt đầu bằng [ và kết thúc bằng ].`,
+      3. Chỉ trả về mảng JSON.`,
     });
-    const text = response.text || "";
+    
+    let text = response.text || "";
+    // Remove markdown code blocks if present
+    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    
     const jsonMatch = text.match(/\[.*\]/s);
-    if (jsonMatch) return JSON.parse(jsonMatch[0]);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch (e) {
+        console.error("JSON Parse Error:", e, "Text:", jsonMatch[0]);
+        return null;
+      }
+    }
     return null;
   } catch (error) {
     console.error("AI Goal Decomposition Error:", error);
