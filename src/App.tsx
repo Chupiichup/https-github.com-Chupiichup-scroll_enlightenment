@@ -359,11 +359,13 @@ function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedG
               <div className="flex items-center gap-2">
                 <Input 
                   type="text" 
-                  value={goal.currentValue.toLocaleString('vi-VN')}
+                  value={goal.currentValue === 0 ? "" : goal.currentValue.toLocaleString('vi-VN')}
+                  placeholder="0"
                   onChange={(e) => {
                     const val = e.target.value.replace(/\D/g, "");
                     onUpdateValue(goal.id, val ? parseInt(val, 10) : 0);
                   }}
+                  onFocus={(e) => e.target.select()}
                   className="w-24 h-8 text-xs bg-white/50 border-silk rounded-none font-bold"
                 />
                 <span className="text-xs opacity-60">/ {goal.targetValue.toLocaleString('vi-VN')} {goal.unit}</span>
@@ -1605,6 +1607,7 @@ export default function App() {
                     const val = e.target.value.replace(/\D/g, "");
                     setNewGoal({...newGoal, targetValue: val ? parseInt(val, 10) : 0});
                   }}
+                  onFocus={(e) => e.target.select()}
                   placeholder="Nhập số lượng..."
                   className="bg-white/50 border-silk rounded-none"
                 />
