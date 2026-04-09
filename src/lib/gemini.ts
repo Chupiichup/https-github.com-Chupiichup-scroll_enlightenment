@@ -33,23 +33,38 @@ export async function decomposeGoal(goalTitle: string, level: string, targetValu
     console.warn("Gemini API Key is missing. AI features are disabled.");
     return null;
   }
+  
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth() + 1;
+  const currentQuarter = Math.ceil(currentMonth / 3);
+  
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Bạn là một vị sư phụ thông thái. Đệ tử có một mục tiêu lớn: "${goalTitle}" với giá trị mục tiêu là ${targetValue} ${unit} cho cấp độ ${level}.
-      Hãy giúp đệ tử chia nhỏ mục tiêu này thành các cấp độ thấp hơn (nếu là Năm thì chia thành 4 Quý, nếu là Quý thì chia thành 3 Tháng, nếu là Tháng thì chia thành 4 Tuần).
+      Hôm nay là ngày ${currentDate.toLocaleDateString('vi-VN')}.
+      
+      Hãy giúp đệ tử chia nhỏ mục tiêu này thành các cấp độ thấp hơn:
+      - Nếu là Năm: chia thành các Quý còn lại trong năm, sau đó trong mỗi Quý chia thành các Tháng, trong mỗi Tháng chia thành các Tuần.
+      - Nếu là Quý: chia thành các Tháng còn lại trong Quý, sau đó trong mỗi Tháng chia thành các Tuần.
+      - Nếu là Tháng: chia thành các Tuần còn lại trong Tháng.
       
       YÊU CẦU QUAN TRỌNG:
-      1. Trả về một mảng JSON các đối tượng.
-      2. Mỗi đối tượng PHẢI có:
-         - "title": tên mục tiêu con (ví dụ: "Quý 1: Khởi đầu nan")
-         - "targetValue": giá trị mục tiêu con (PHẢI là số, tổng các targetValue của con nên xấp xỉ bằng targetValue của cha)
+      1. Chỉ đề xuất cho các khoảng thời gian TỪ HIỆN TẠI TRỞ ĐI.
+      2. Trả về một mảng JSON các đối tượng phân cấp.
+      3. Mỗi đối tượng PHẢI có:
+         - "title": tên giai đoạn (ví dụ: "Quý 2: Tăng tốc")
+         - "level": "year" | "quarter" | "month" | "week"
+         - "timeValue": giá trị thời gian (ví dụ: "2026", "2", "4", "1")
+         - "targetValue": giá trị mục tiêu (PHẢI là số nguyên dương, làm tròn, không có số thập phân)
          - "description": lời khuyên ngắn gọn
-      3. Chỉ trả về mảng JSON.`,
+         - "children": mảng các đối tượng con theo cấp bậc thấp hơn.
+      4. Tổng targetValue của các con PHẢI bằng targetValue của cha.
+      5. Chỉ trả về mảng JSON.`,
     });
     
     let text = response.text || "";
-    // Remove markdown code blocks if present
     text = text.replace(/```json/g, "").replace(/```/g, "").trim();
     
     const jsonMatch = text.match(/\[.*\]/s);
