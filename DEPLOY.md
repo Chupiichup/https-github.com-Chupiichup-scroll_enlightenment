@@ -39,29 +39,73 @@ Nếu bạn muốn tự mình triển khai từ máy tính (Local), hãy làm th
 
 ---
 
-## Phương án 3: Ghi chép Lịch sử Triển khai (Tạo file log)
+## Phương án 3: Ghi chép Lịch sử Triển khai (Dành cho khi GitHub Action không chạy)
 
-Để quản lý các phiên bản đã triển khai, bạn có thể tạo một file `.md` mới mỗi lần thực hiện deploy. Việc này giúp bạn theo dõi lịch sử thay đổi một cách chuyên nghiệp.
+Nếu bạn không thể sử dụng GitHub Actions hoặc muốn lưu lại bằng chứng mỗi lần cập nhật code, hãy sử dụng cách này. Đây là cách chắc chắn nhất để bạn biết mình đã làm gì.
 
-### 1. Tên file gợi ý
-Sử dụng định dạng: `deploy_[Ngày_Tháng_Năm].md`
-*Ví dụ: `deploy_11_04_2026.md`*
+### 1. Cách thực hiện
+Mỗi khi bạn hoàn thành một tính năng và muốn "deploy" (ghi nhận), hãy tạo một file Markdown mới trong thư mục gốc của dự án.
 
-### 2. Nội dung file mẫu
-Bạn có thể copy nội dung sau vào file mới:
+### 2. Tên file và Nội dung mẫu
+- **Tên file:** `deploy_YYYY_MM_DD_vX.md` (Ví dụ: `deploy_2026_04_11_v1.md`)
+- **Nội dung bên trong:**
 
 ```markdown
-# Nhật ký Triển khai - Ngày 11/04/2026
+# Nhật ký Triển khai - [Ngày/Tháng/Năm]
 
-- **Phiên bản:** v1.0.[số_lần_cập_nhật]
-- **Nội dung cập nhật:**
-  - Cập nhật giao diện Week View (Calendar style).
-  - Thêm tính năng kéo thả (Drag & Drop) cho công việc.
-  - Nâng cấp hệ thống Thống kê (Stats) với biểu đồ Recharts.
-  - Sửa lỗi khai báo trùng lặp hàm `deleteSubTask`.
-- **Trạng thái:** Đã triển khai lên GitHub Pages.
-- **Người thực hiện:** [Tên của bạn]
+### 📝 Nội dung thay đổi:
+- [ ] Tính năng 1: ...
+- [ ] Sửa lỗi: ...
+- [ ] Cập nhật giao diện: ...
+
+### 🚀 Trạng thái:
+- Đã hoàn thành và sẵn sàng lưu trữ.
+- Người thực hiện: [Tên của bạn]
 ```
+
+---
+
+### 🛠️ Cách thiết lập GitHub Actions (Tự động hóa)
+
+Do hạn chế về quyền hạn, tôi không thể trực tiếp đẩy file cấu hình Action lên GitHub cho bạn. Nếu bạn muốn trang web tự động cập nhật mỗi khi push code, hãy làm theo các bước sau:
+
+1. Trên GitHub, nhấn vào **Add file** -> **Create new file**.
+2. Nhập tên file: `.github/workflows/deploy.yml`
+3. Dán nội dung sau vào file đó:
+
+```yaml
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main  # Hoặc tên nhánh chính của bạn
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install and Build
+        run: |
+          npm install
+          npm run build
+        env:
+          VITE_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: dist
+          branch: gh-pages
+```
+
+4. Nhấn **Commit changes**. Đừng quên làm **Bước 2** ở **Phương án 1** để thêm API Key vào Secrets.
 
 ---
 
