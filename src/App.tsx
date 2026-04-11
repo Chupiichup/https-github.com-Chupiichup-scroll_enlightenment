@@ -84,7 +84,6 @@ import {
 } from "@dnd-kit/sortable";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { breakdownTask, decomposeGoal } from "@/src/lib/gemini";
 import ReactMarkdown from "react-markdown";
 import confetti from 'canvas-confetti';
 import { 
@@ -438,7 +437,7 @@ function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedG
                 disabled={isAiLoading}
                 className="rounded-none border-current text-[10px] font-bold uppercase"
               >
-                <Sparkles className="w-3 h-3 mr-1" /> Phân Rã AI
+                <ArrowRight className="w-3 h-3 mr-1" /> Phân Rã Đại Nguyện
               </Button>
             )}
             {children.length > 0 && (
@@ -532,7 +531,7 @@ const GoalCard = ({ goal, onEdit, onDelete, onDecompose }: { goal: Goal, onEdit:
             className="w-full border-dashed border-silk text-sage text-[10px] uppercase font-bold tracking-widest gap-2"
             onClick={() => onDecompose(goal)}
           >
-            <Sparkles className="w-3 h-3" /> Phân rã AI
+            <ArrowRight className="w-3 h-3" /> Phân rã đại nguyện
           </Button>
         )}
       </CardContent>
@@ -548,7 +547,7 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [subTasks, setSubTasks] = useState<SubTask[]>([]);
   
-  const [currentView, setCurrentView] = useState<"grand" | "year" | "quarter" | "month" | "week" | "stats" | "calendar" | "milestones" | "ai" | "library">("grand");
+  const [currentView, setCurrentView] = useState<"grand" | "year" | "quarter" | "month" | "week" | "stats" | "calendar" | "milestones" | "library">("grand");
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [selectedQuarter, setSelectedQuarter] = useState(Math.ceil((new Date().getMonth() + 1) / 3).toString());
   const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString());
@@ -580,10 +579,6 @@ export default function App() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [filterPriority, setFilterPriority] = useState("All");
-  
-  const [aiChatHistory, setAiChatHistory] = useState<{role: string, content: string}[]>([]);
-  const [aiMessage, setAiMessage] = useState("");
-  const [isAiChatLoading, setIsAiChatLoading] = useState(false);
   
   const [isAddingColumn, setIsAddingColumn] = useState(false);
   const [newColumnTitle, setNewColumnTitle] = useState("");
@@ -852,51 +847,7 @@ export default function App() {
     } catch (error) {
       console.error("Update Task Error:", error);
     }
-  };
-
-  const deleteTask = async (taskId: string) => {
-    if (!user) return;
-    try {
-      await deleteDoc(doc(db, "tasks", taskId));
-      setIsDetailOpen(false);
-      setSelectedTask(null);
-    } catch (error) {
-      console.error("Delete Task Error:", error);
-    }
-  };
-
-  const handleAiAssist = async () => {
-    if (!selectedTask) return;
-    setIsAiLoading(true);
-    const steps = await breakdownTask(selectedTask.title);
-    if (steps.length > 0) {
-      const newItems: ChecklistItem[] = steps.map(s => ({
-        id: Math.random().toString(36).substr(2, 9),
-        text: s,
-        completed: false
-      }));
-      updateTask({ checklist: [...(selectedTask.checklist || []), ...newItems] });
-    }
-    setIsAiLoading(false);
-  };
-
-  const handleAiChat = async () => {
-    if (!aiMessage.trim()) return;
-    
-    const userMsg = { role: "user", content: aiMessage };
-    setAiChatHistory(prev => [...prev, userMsg]);
-    setAiMessage("");
-    setIsAiChatLoading(true);
-
-    try {
-      const response = await breakdownTask(`Hãy tư vấn cho tôi về mục tiêu tu luyện sau: ${aiMessage}. Hãy trả lời như một vị sư phụ thông thái trong một thư viện cổ, hướng dẫn đệ tử trên con đường giác ngộ.`);
-      const aiMsg = { role: "assistant", content: response.join("\n\n") };
-      setAiChatHistory(prev => [...prev, aiMsg]);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setIsAiChatLoading(false);
-    }
+    // AI feature removed
   };
 
   const addNewColumn = async () => {
@@ -946,6 +897,18 @@ export default function App() {
     }
   };
 
+  const deleteTask = async (taskId: string) => {
+    if (!user) return;
+    if (!confirm("Bạn có chắc chắn muốn xóa mục tiêu này?")) return;
+    try {
+      await deleteDoc(doc(db, "tasks", taskId));
+      setIsDetailOpen(false);
+      setSelectedTask(null);
+    } catch (error) {
+      console.error("Delete Task Error:", error);
+    }
+  };
+
   const handleAddGoal = async () => {
     if (!user || !newGoal.title) return;
     try {
@@ -974,21 +937,128 @@ export default function App() {
     }
   };
 
+  const generateManualProposal = (parentGoal: Goal) => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const currentQuarter = Math.ceil(currentMonth / 3);
+    
+    const getWeeks = (month: number, year: number, totalValue: number) => {
+      const weeks: any[] = [];
+      const valPerWeek = Math.floor(totalValue / 4);
+      const remainder = totalValue % 4;
+      for (let i = 1; i <= 4; i++) {
+        weeks.push({
+          title: `Tuần ${i}: Thực thi`,
+          level: "week",
+          timeValue: i.toString(),
+          targetValue: valPerWeek + (i === 4 ? remainder : 0),
+          description: "Tập trung hoàn thành chỉ tiêu tuần.",
+          children: []
+        });
+      }
+      return weeks;
+    };
+
+    const getMonths = (quarter: number, year: number, totalValue: number, startMonth: number = 1) => {
+      const months: any[] = [];
+      const qMonths = [1, 2, 3].map(m => (quarter - 1) * 3 + m).filter(m => m >= startMonth);
+      if (qMonths.length === 0) return [];
+      
+      const valPerMonth = Math.floor(totalValue / qMonths.length);
+      const remainder = totalValue % qMonths.length;
+      
+      qMonths.forEach((m, idx) => {
+        const mVal = valPerMonth + (idx === qMonths.length - 1 ? remainder : 0);
+        months.push({
+          title: `Tháng ${m}: Kiên trì`,
+          level: "month",
+          timeValue: m.toString(),
+          targetValue: mVal,
+          description: `Duy trì kỷ luật trong tháng ${m}.`,
+          children: getWeeks(m, year, mVal)
+        });
+      });
+      return months;
+    };
+
+    const getQuarters = (year: number, totalValue: number, startQuarter: number = 1, startMonth: number = 1) => {
+      const quarters: any[] = [];
+      const remainingQuarters = [1, 2, 3, 4].filter(q => q >= startQuarter);
+      if (remainingQuarters.length === 0) return [];
+      
+      const valPerQ = Math.floor(totalValue / remainingQuarters.length);
+      const remainder = totalValue % remainingQuarters.length;
+
+      remainingQuarters.forEach((q, idx) => {
+        const qVal = valPerQ + (idx === remainingQuarters.length - 1 ? remainder : 0);
+        quarters.push({
+          title: `Quý ${q}: Nỗ lực`,
+          level: "quarter",
+          timeValue: q.toString(),
+          targetValue: qVal,
+          description: `Phấn đấu đạt mục tiêu quý ${q}.`,
+          children: getMonths(q, year, qVal, q === startQuarter ? startMonth : (q-1)*3 + 1)
+        });
+      });
+      return quarters;
+    };
+
+    if (parentGoal.level === "grand") {
+      const endYear = new Date(parentGoal.endDate).getFullYear();
+      const years: any[] = [];
+      const remainingYears = [];
+      for (let y = currentYear; y <= endYear; y++) remainingYears.push(y);
+      
+      const valPerYear = Math.floor(parentGoal.targetValue / remainingYears.length);
+      const remainder = parentGoal.targetValue % remainingYears.length;
+
+      remainingYears.forEach((y, idx) => {
+        const yVal = valPerYear + (idx === remainingYears.length - 1 ? remainder : 0);
+        years.push({
+          title: `Năm ${y}: Tầm nhìn`,
+          level: "year",
+          timeValue: y.toString(),
+          targetValue: yVal,
+          description: `Kế hoạch cho năm ${y}.`,
+          children: y === currentYear ? getQuarters(y, yVal, currentQuarter, currentMonth) : getQuarters(y, yVal, 1, 1)
+        });
+      });
+      return years;
+    }
+
+    if (parentGoal.level === "year") {
+      return getQuarters(currentYear, parentGoal.targetValue, currentQuarter, currentMonth);
+    }
+
+    if (parentGoal.level === "quarter") {
+      const q = parseInt(parentGoal.timeValue) || currentQuarter;
+      return getMonths(q, currentYear, parentGoal.targetValue, currentMonth);
+    }
+
+    if (parentGoal.level === "month") {
+      const m = parseInt(parentGoal.timeValue) || currentMonth;
+      return getWeeks(m, currentYear, parentGoal.targetValue);
+    }
+
+    return [];
+  };
+
   const handleDecomposeGoal = async (parentGoal: Goal) => {
     if (!parentGoal) return;
     setIsAiLoading(true);
     try {
-      const proposal = await decomposeGoal(parentGoal.title, parentGoal.level, parentGoal.targetValue, parentGoal.unit);
-      if (proposal) {
+      const proposal = generateManualProposal(parentGoal);
+      if (proposal && proposal.length > 0) {
         setAiProposal(proposal);
         setEditingGoal(parentGoal);
         setIsReviewingAI(true);
       } else {
-        alert("AI không thể phân rã mục tiêu này. Có thể do lỗi định dạng kết quả hoặc thiếu API Key.");
+        alert("Không thể phân rã mục tiêu này dựa trên thời gian còn lại.");
       }
     } catch (error) {
       console.error("Decompose Error:", error);
-      alert("Lỗi kết nối AI. Vui lòng kiểm tra lại.");
+      alert("Lỗi khi phân rã mục tiêu.");
     } finally {
       setIsAiLoading(false);
     }
@@ -1775,55 +1845,6 @@ export default function App() {
             </div>
           )}
 
-          {currentView === "ai" && (
-            <div className="flex-1 flex flex-col relative z-10 bg-white/40 border border-silk oriental-card overflow-hidden">
-              <ScrollArea className="flex-1 p-8">
-                <div className="space-y-6 max-w-3xl mx-auto">
-                  {aiChatHistory.length === 0 && (
-                    <div className="text-center py-20 space-y-4">
-                      <Sparkles className="w-12 h-12 text-sage/20 mx-auto" />
-                      <h3 className="text-xl font-bold italic">Chào mừng Học Giả</h3>
-                      <p className="text-sm text-sage/60">Hãy đặt câu hỏi về mục tiêu học tập, tôi sẽ giúp bạn tìm ra con đường đúng đắn.</p>
-                    </div>
-                  )}
-                  {aiChatHistory.map((msg, i) => (
-                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[80%] p-4 rounded-none border ${
-                        msg.role === 'user' 
-                        ? 'bg-sage/10 border-sage/20 text-ink italic' 
-                        : 'bg-white/80 border-silk text-ink font-serif'
-                      }`}>
-                        <div className="prose prose-sm max-w-none">
-                          <ReactMarkdown>{msg.content}</ReactMarkdown>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {isAiChatLoading && (
-                    <div className="flex justify-start">
-                      <div className="p-4 bg-white/80 border border-silk animate-pulse flex gap-2 items-center text-sage italic text-sm">
-                        <Zap className="w-4 h-4 animate-bounce" /> Vị sư phụ đang suy ngẫm...
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
-              <div className="p-6 border-t border-silk bg-paper/50">
-                <div className="max-w-3xl mx-auto flex gap-4">
-                  <Input 
-                    placeholder="Hỏi về mục tiêu học tập của bạn..."
-                    value={aiMessage}
-                    onChange={(e) => setAiMessage(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAiChat()}
-                    className="bg-white border-silk rounded-none italic"
-                  />
-                  <Button onClick={handleAiChat} disabled={isAiChatLoading} className="ink-button rounded-none">
-                    Gửi Lời
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {currentView === "library" && (
             <div className="flex-1 overflow-y-auto relative z-10">
@@ -2132,12 +2153,19 @@ export default function App() {
                         <Button 
                           variant="outline" 
                           size="sm" 
-                          onClick={handleAiAssist}
-                          disabled={isAiLoading}
+                          onClick={() => {
+                            const steps = ["Bước 1: Chuẩn bị", "Bước 2: Thực hiện", "Bước 3: Kiểm tra", "Bước 4: Hoàn thiện"];
+                            const newItems: ChecklistItem[] = steps.map(s => ({
+                              id: Math.random().toString(36).substr(2, 9),
+                              text: s,
+                              completed: false
+                            }));
+                            updateTask({ checklist: [...(selectedTask.checklist || []), ...newItems] });
+                          }}
                           className="gap-2 border-sage text-sage hover:bg-sage/5 rounded-none text-[10px] font-bold uppercase tracking-wider"
                         >
-                          <Sparkles className={`w-3 h-3 ${isAiLoading ? 'animate-pulse' : ''}`} />
-                          {isAiLoading ? 'Đang Tiên Tri...' : 'AI Tiên Tri'}
+                          <Plus className="w-3 h-3" />
+                          Thêm Lộ Trình Mẫu
                         </Button>
                       </div>
 
