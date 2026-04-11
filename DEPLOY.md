@@ -39,5 +39,31 @@ Nếu bạn muốn tự mình triển khai từ máy tính (Local), hãy làm th
 
 ---
 
+## Phương án 3: Ghi chép Lịch sử Triển khai (Tạo file log)
+
+Để quản lý các phiên bản đã triển khai, bạn có thể tạo một file `.md` mới mỗi lần thực hiện deploy. Việc này giúp bạn theo dõi lịch sử thay đổi một cách chuyên nghiệp.
+
+### 1. Tên file gợi ý
+Sử dụng định dạng: `deploy_[Ngày_Tháng_Năm].md`
+*Ví dụ: `deploy_11_04_2026.md`*
+
+### 2. Nội dung file mẫu
+Bạn có thể copy nội dung sau vào file mới:
+
+```markdown
+# Nhật ký Triển khai - Ngày 11/04/2026
+
+- **Phiên bản:** v1.0.[số_lần_cập_nhật]
+- **Nội dung cập nhật:**
+  - Cập nhật giao diện Week View (Calendar style).
+  - Thêm tính năng kéo thả (Drag & Drop) cho công việc.
+  - Nâng cấp hệ thống Thống kê (Stats) với biểu đồ Recharts.
+  - Sửa lỗi khai báo trùng lặp hàm `deleteSubTask`.
+- **Trạng thái:** Đã triển khai lên GitHub Pages.
+- **Người thực hiện:** [Tên của bạn]
+```
+
+---
+
 ### Lưu ý về Đăng xuất
 Tôi đã cập nhật nút Đăng xuất to hơn và dễ bấm hơn. Bạn chỉ cần click vào ảnh đại diện, một menu lớn sẽ hiện ra, nhấn vào dòng **"Đăng Xuất"** màu đỏ để thoát.

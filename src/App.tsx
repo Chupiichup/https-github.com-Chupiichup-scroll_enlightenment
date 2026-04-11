@@ -1540,7 +1540,7 @@ export default function App() {
               </div>
               <div className="w-10 h-10 rounded-full border border-silk p-0.5 relative cursor-pointer" onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}>
                 <div className="w-full h-full rounded-full bg-sage/10 flex items-center justify-center overflow-hidden">
-                  <img src={user?.photoURL || "https://images.unsplash.com/photo-1528164344705-47542687000d?auto=format&fit=crop&w=100&h=100"} alt="User" referrerPolicy="no-referrer" />
+                  <img src={user?.photoURL || "https://images.unsplash.com/photo-1493246507139-91e8bef99c02?auto=format&fit=crop&w=100&h=100"} alt="User" referrerPolicy="no-referrer" />
                 </div>
                 {isAccountMenuOpen && (
                   <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-silk shadow-2xl z-50 py-2">
