@@ -51,7 +51,7 @@ import {
   Cell
 } from 'recharts';
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
@@ -75,6 +75,7 @@ import {
   useSensors,
   DragOverlay,
   defaultDropAnimationSideEffects,
+  useDroppable,
 } from "@dnd-kit/core";
 import {
   arrayMove,
@@ -107,6 +108,8 @@ import {
   serverTimestamp
 } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/src/lib/firebase";
+import { decomposeGoal, DecompositionResult } from "@/src/lib/goalUtils";
+import { format, startOfToday, getYear, getQuarter, getMonth, addYears, addMonths } from "date-fns";
 
 // --- Types ---
 interface Column {
@@ -133,12 +136,14 @@ interface Goal {
   currentValueAbs: number;
   progressAvg: number;
   unit: string;
-  timeValue: string;
+  timeValue: string; // e.g., "2026", "Q2-2026", "M4-2026", "W15-2026"
   startDate: string;
   endDate: string;
   createdAt: any;
   linkedTaskIds?: string[];
   updateMethod?: "manual" | "average";
+  priority?: "Low" | "Medium" | "High";
+  notes?: string;
 }
 
 interface Task {
@@ -362,7 +367,8 @@ function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedG
   onEdit: (g: Goal) => void
 }) {
   const children = allGoals.filter(g => g.parentId === goal.id);
-  const progress = goal.targetValue > 0 ? (goal.currentValueAbs / goal.targetValue) * 100 : 0;
+  const progressAbs = goal.targetValue > 0 ? (goal.currentValueAbs / goal.targetValue) * 100 : 0;
+  const progressAvg = goal.progressAvg || 0;
   
   const levelColors: any = {
     "year": "border-cinnabar text-cinnabar bg-cinnabar/5",
@@ -382,14 +388,32 @@ function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedG
             </div>
             <p className="text-xs opacity-70">{goal.description}</p>
             
-            <div className="flex items-center gap-4 mt-4">
-              <div className="flex-1 h-1.5 bg-silk/30 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-current transition-all duration-1000" 
-                  style={{ width: `${Math.min(progress, 100)}%` }}
-                />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+              <div className="space-y-1">
+                <div className="flex justify-between text-[9px] font-bold uppercase opacity-60">
+                  <span>Tiến độ tuyệt đối</span>
+                  <span>{Math.round(progressAbs)}%</span>
+                </div>
+                <div className="h-1.5 bg-silk/30 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-cinnabar transition-all duration-1000" 
+                    style={{ width: `${Math.min(progressAbs, 100)}%` }}
+                  />
+                </div>
               </div>
-              <span className="text-xs font-bold">{Math.round(progress)}%</span>
+
+              <div className="space-y-1">
+                <div className="flex justify-between text-[9px] font-bold uppercase opacity-60">
+                  <span>Tiến độ trung bình con</span>
+                  <span>{Math.round(progressAvg)}%</span>
+                </div>
+                <div className="h-1.5 bg-silk/30 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-sage transition-all duration-1000" 
+                    style={{ width: `${Math.min(progressAvg, 100)}%` }}
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center gap-4 mt-2">
@@ -539,6 +563,134 @@ const GoalCard = ({ goal, onEdit, onDelete, onDecompose }: { goal: Goal, onEdit:
   );
 };
 
+// --- Droppable Day Component ---
+function DroppableDay({ day, dayNum, children }: { day: string, dayNum: number, children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `day-${dayNum}`,
+  });
+
+  return (
+    <div 
+      ref={setNodeRef} 
+      className={`w-64 flex-shrink-0 flex flex-col gap-4 transition-colors ${isOver ? 'bg-sage/10' : ''}`}
+    >
+      <div className="bg-paper p-2 text-center text-[10px] font-bold text-sage uppercase tracking-widest border border-silk">
+        {day}
+      </div>
+      <div className="flex-1 bg-white/30 border border-silk/50 p-3 space-y-3 overflow-y-auto min-h-[200px]">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// --- Sortable SubTask Card ---
+function SortableSubTask({ subTask, onToggle, onDelete }: { subTask: SubTask, onToggle: (st: SubTask) => void, onDelete: (id: string) => void }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id: subTask.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.3 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <div className="p-3 bg-white border border-silk shadow-sm text-xs group relative cursor-grab active:cursor-grabbing">
+        <div className="flex justify-between items-start mb-1">
+          <span className={`text-[8px] uppercase font-bold px-1 ${subTask.priority === 'High' ? 'bg-cinnabar/10 text-cinnabar' : 'bg-sage/10 text-sage'}`}>
+            {subTask.priority}
+          </span>
+          <div className="flex items-center gap-2">
+            <input 
+              type="checkbox" 
+              checked={subTask.isCompleted} 
+              onChange={(e) => {
+                e.stopPropagation();
+                onToggle(subTask);
+              }}
+              className="w-3 h-3 rounded-none border-silk text-sage focus:ring-sage cursor-pointer"
+            />
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="w-4 h-4 text-cinnabar opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(subTask.id);
+              }}
+            >
+              <Trash2 className="w-2 h-2" />
+            </Button>
+          </div>
+        </div>
+        <p className={subTask.isCompleted ? 'line-through text-ink/40' : ''}>{subTask.title}</p>
+        {subTask.notes && <p className="text-[9px] text-sage/60 mt-1 italic">{subTask.notes}</p>}
+      </div>
+    </div>
+  );
+}
+
+// --- Review Decomposition Modal ---
+function ReviewDecompositionModal({ 
+  proposal, 
+  onApprove, 
+  onCancel 
+}: { 
+  proposal: DecompositionResult[], 
+  onApprove: () => void, 
+  onCancel: () => void 
+}) {
+  const renderItem = (item: DecompositionResult, depth = 0) => (
+    <div key={`${item.level}-${item.timeValue}`} className={`space-y-2 ${depth > 0 ? "ml-6 border-l border-silk/30 pl-4" : ""}`}>
+      <div className="flex items-center justify-between p-3 bg-white/40 border border-silk oriental-card">
+        <div className="flex items-center gap-3">
+          <Badge variant="outline" className="text-[9px] uppercase tracking-widest border-silk text-sage">
+            {item.level}
+          </Badge>
+          <span className="text-sm font-bold italic">{item.timeValue}</span>
+        </div>
+        <div className="text-xs font-bold text-cinnabar">
+          {item.targetValue.toLocaleString('vi-VN')}
+        </div>
+      </div>
+      {item.children && item.children.map(child => renderItem(child, depth + 1))}
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+      <Card className="w-full max-w-2xl oriental-card border-none overflow-hidden flex flex-col max-h-[90vh]">
+        <CardHeader className="bg-sage/10 border-b border-silk p-6">
+          <CardTitle className="text-2xl font-bold italic flex items-center gap-3">
+            <ArrowRight className="w-6 h-6 text-cinnabar" />
+            Review Phân Rã Mục Tiêu
+          </CardTitle>
+          <p className="text-sm text-sage/70">Hệ thống đã tự động phân bổ mục tiêu dựa trên thời gian. Vui lòng kiểm tra trước khi khởi tạo.</p>
+        </CardHeader>
+        <CardContent className="p-6 overflow-y-auto flex-1 space-y-4">
+          {proposal.map(item => renderItem(item))}
+        </CardContent>
+        <CardFooter className="p-6 border-t border-silk bg-silk/10 flex justify-end gap-4">
+          <Button variant="ghost" onClick={onCancel} className="rounded-none font-bold uppercase tracking-widest text-xs">
+            Hủy Bỏ
+          </Button>
+          <Button onClick={onApprove} className="ink-button rounded-none font-bold uppercase tracking-widest text-xs px-8">
+            Xác Nhận & Khởi Tạo
+          </Button>
+        </CardFooter>
+      </Card>
+    </div>
+  );
+}
+
 // --- Main App Component ---
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -549,9 +701,9 @@ export default function App() {
   
   const [currentView, setCurrentView] = useState<"grand" | "year" | "quarter" | "month" | "week" | "stats" | "calendar" | "milestones" | "library">("grand");
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
-  const [selectedQuarter, setSelectedQuarter] = useState(Math.ceil((new Date().getMonth() + 1) / 3).toString());
-  const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString());
-  const [selectedWeek, setSelectedWeek] = useState("1"); // Should calculate current week of year
+  const [selectedQuarter, setSelectedQuarter] = useState(`Q${Math.ceil((new Date().getMonth() + 1) / 3)}-${new Date().getFullYear()}`);
+  const [selectedMonth, setSelectedMonth] = useState(`M${new Date().getMonth() + 1}-${new Date().getFullYear()}`);
+  const [selectedWeek, setSelectedWeek] = useState(`W${Math.ceil((new Date().getDate() + new Date(new Date().getFullYear(), new Date().getMonth(), 1).getDay()) / 7)}-${new Date().getFullYear()}`);
 
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -566,11 +718,12 @@ export default function App() {
     targetValue: 0,
     currentValueAbs: 0,
     title: "",
-    description: ""
+    description: "",
+    timeValue: new Date().getFullYear().toString()
   });
   
-  const [aiProposal, setAiProposal] = useState<any[] | null>(null);
-  const [isReviewingAI, setIsReviewingAI] = useState(false);
+  const [decompositionProposal, setDecompositionProposal] = useState<any[] | null>(null);
+  const [isReviewingDecomposition, setIsReviewingDecomposition] = useState(false);
   const [expandedGoals, setExpandedGoals] = useState<string[]>([]);
 
   const [columns, setColumns] = useState<Column[]>(INITIAL_COLUMNS);
@@ -825,6 +978,32 @@ export default function App() {
     setActiveId(null);
   };
 
+  const handleSubTaskDragEnd = async (event: any) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeId = active.id;
+    const overId = over.id;
+
+    // If overId is a day (1-7), update the subtask's dayOfWeek
+    if (typeof overId === 'string' && overId.startsWith('day-')) {
+      const dayNum = parseInt(overId.split('-')[1]);
+      await updateDoc(doc(db, "subtasks", activeId), { dayOfWeek: dayNum });
+    }
+  };
+
+  const deleteSubTask = async (id: string) => {
+    try {
+      const st = subTasks.find(s => s.id === id);
+      await deleteDoc(doc(db, "subtasks", id));
+      if (st && st.taskId) {
+        setTimeout(() => updateProgressRecursively(st.taskId), 500);
+      }
+    } catch (error) {
+      console.error("Delete Subtask Error:", error);
+    }
+  };
+
   const openTaskDetail = (task: Task) => {
     setSelectedTask(task);
     setIsDetailOpen(true);
@@ -912,217 +1091,97 @@ export default function App() {
   const handleAddGoal = async () => {
     if (!user || !newGoal.title) return;
     try {
-      const goalData = {
+      const proposal = decomposeGoal(
+        newGoal.title,
+        newGoal.targetValue || 0,
+        (newGoal.level as any) || "year",
+        newGoal.timeValue || new Date().getFullYear().toString(),
+        newGoal.unit || ""
+      );
+      setDecompositionProposal(proposal);
+      setIsReviewingDecomposition(true);
+      setIsAddingGoal(false);
+    } catch (error) {
+      console.error("Decomposition Error:", error);
+    }
+  };
+
+  const approveDecomposition = async () => {
+    if (!user || !decompositionProposal) return;
+    try {
+      // Create the parent goal first
+      const parentGoalData = {
         ...newGoal,
-        currentValueAbs: 0,
-        progressAvg: 0,
         ownerId: user.uid,
         createdAt: serverTimestamp(),
-        startDate: new Date().toISOString().split('T')[0],
-        endDate: new Date(new Date().getFullYear(), 11, 31).toISOString().split('T')[0],
+        startDate: decompositionProposal[0]?.startDate || new Date().toISOString().split('T')[0],
+        endDate: decompositionProposal[decompositionProposal.length - 1]?.endDate || new Date().toISOString().split('T')[0],
       };
-      await addDoc(collection(db, "goals"), goalData);
-      setIsAddingGoal(false);
+      const parentDoc = await addDoc(collection(db, "goals"), parentGoalData);
+      const parentId = parentDoc.id;
+
+      // Recursive function to save decomposition
+      const saveDecomposition = async (items: DecompositionResult[], pId: string) => {
+        for (const item of items) {
+          const goalData = {
+            title: `${newGoal.title} - ${item.timeValue}`,
+            description: `Mục tiêu phân rã cho ${item.timeValue}`,
+            ownerId: user.uid,
+            level: item.level,
+            parentId: pId,
+            targetValue: item.targetValue,
+            currentValueAbs: 0,
+            progressAvg: 0,
+            unit: newGoal.unit,
+            timeValue: item.timeValue,
+            startDate: item.startDate,
+            endDate: item.endDate,
+            createdAt: serverTimestamp(),
+            updateMethod: item.level === "week" ? "manual" : "average"
+          };
+          const docRef = await addDoc(collection(db, "goals"), goalData);
+          if (item.children && item.children.length > 0) {
+            await saveDecomposition(item.children, docRef.id);
+          }
+        }
+      };
+
+      await saveDecomposition(decompositionProposal, parentId);
+      
+      setIsReviewingDecomposition(false);
+      setDecompositionProposal(null);
       setNewGoal({
         level: "grand",
         unit: "kg",
         targetValue: 0,
         currentValueAbs: 0,
         title: "",
-        description: ""
+        description: "",
+        timeValue: new Date().getFullYear().toString()
       });
     } catch (error) {
-      console.error("Add Goal Error:", error);
-      alert("Có lỗi xảy ra khi tạo đại nguyện. Vui lòng thử lại.");
+      console.error("Save Decomposition Error:", error);
     }
   };
 
-  const generateManualProposal = (parentGoal: Goal) => {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
-    const currentQuarter = Math.ceil(currentMonth / 3);
-    
-    const getWeeks = (month: number, year: number, totalValue: number) => {
-      const weeks: any[] = [];
-      const valPerWeek = Math.floor(totalValue / 4);
-      const remainder = totalValue % 4;
-      for (let i = 1; i <= 4; i++) {
-        weeks.push({
-          title: `Tuần ${i}: Thực thi`,
-          level: "week",
-          timeValue: i.toString(),
-          targetValue: valPerWeek + (i === 4 ? remainder : 0),
-          description: "Tập trung hoàn thành chỉ tiêu tuần.",
-          children: []
-        });
-      }
-      return weeks;
-    };
-
-    const getMonths = (quarter: number, year: number, totalValue: number, startMonth: number = 1) => {
-      const months: any[] = [];
-      const qMonths = [1, 2, 3].map(m => (quarter - 1) * 3 + m).filter(m => m >= startMonth);
-      if (qMonths.length === 0) return [];
-      
-      const valPerMonth = Math.floor(totalValue / qMonths.length);
-      const remainder = totalValue % qMonths.length;
-      
-      qMonths.forEach((m, idx) => {
-        const mVal = valPerMonth + (idx === qMonths.length - 1 ? remainder : 0);
-        months.push({
-          title: `Tháng ${m}: Kiên trì`,
-          level: "month",
-          timeValue: m.toString(),
-          targetValue: mVal,
-          description: `Duy trì kỷ luật trong tháng ${m}.`,
-          children: getWeeks(m, year, mVal)
-        });
-      });
-      return months;
-    };
-
-    const getQuarters = (year: number, totalValue: number, startQuarter: number = 1, startMonth: number = 1) => {
-      const quarters: any[] = [];
-      const remainingQuarters = [1, 2, 3, 4].filter(q => q >= startQuarter);
-      if (remainingQuarters.length === 0) return [];
-      
-      const valPerQ = Math.floor(totalValue / remainingQuarters.length);
-      const remainder = totalValue % remainingQuarters.length;
-
-      remainingQuarters.forEach((q, idx) => {
-        const qVal = valPerQ + (idx === remainingQuarters.length - 1 ? remainder : 0);
-        quarters.push({
-          title: `Quý ${q}: Nỗ lực`,
-          level: "quarter",
-          timeValue: q.toString(),
-          targetValue: qVal,
-          description: `Phấn đấu đạt mục tiêu quý ${q}.`,
-          children: getMonths(q, year, qVal, q === startQuarter ? startMonth : (q-1)*3 + 1)
-        });
-      });
-      return quarters;
-    };
-
-    if (parentGoal.level === "grand") {
-      const endYear = new Date(parentGoal.endDate).getFullYear();
-      const years: any[] = [];
-      const remainingYears = [];
-      for (let y = currentYear; y <= endYear; y++) remainingYears.push(y);
-      
-      const valPerYear = Math.floor(parentGoal.targetValue / remainingYears.length);
-      const remainder = parentGoal.targetValue % remainingYears.length;
-
-      remainingYears.forEach((y, idx) => {
-        const yVal = valPerYear + (idx === remainingYears.length - 1 ? remainder : 0);
-        years.push({
-          title: `Năm ${y}: Tầm nhìn`,
-          level: "year",
-          timeValue: y.toString(),
-          targetValue: yVal,
-          description: `Kế hoạch cho năm ${y}.`,
-          children: y === currentYear ? getQuarters(y, yVal, currentQuarter, currentMonth) : getQuarters(y, yVal, 1, 1)
-        });
-      });
-      return years;
-    }
-
-    if (parentGoal.level === "year") {
-      return getQuarters(currentYear, parentGoal.targetValue, currentQuarter, currentMonth);
-    }
-
-    if (parentGoal.level === "quarter") {
-      const q = parseInt(parentGoal.timeValue) || currentQuarter;
-      return getMonths(q, currentYear, parentGoal.targetValue, currentMonth);
-    }
-
-    if (parentGoal.level === "month") {
-      const m = parseInt(parentGoal.timeValue) || currentMonth;
-      return getWeeks(m, currentYear, parentGoal.targetValue);
-    }
-
-    return [];
-  };
 
   const handleDecomposeGoal = async (parentGoal: Goal) => {
-    if (!parentGoal) return;
-    setIsAiLoading(true);
     try {
-      const proposal = generateManualProposal(parentGoal);
-      if (proposal && proposal.length > 0) {
-        setAiProposal(proposal);
-        setEditingGoal(parentGoal);
-        setIsReviewingAI(true);
-      } else {
-        alert("Không thể phân rã mục tiêu này dựa trên thời gian còn lại.");
-      }
+      const proposal = decomposeGoal(
+        parentGoal.title,
+        parentGoal.targetValue,
+        parentGoal.level as any,
+        parentGoal.timeValue,
+        parentGoal.unit
+      );
+      setDecompositionProposal(proposal);
+      setIsReviewingDecomposition(true);
+      setNewGoal(parentGoal); 
     } catch (error) {
-      console.error("Decompose Error:", error);
-      alert("Lỗi khi phân rã mục tiêu.");
-    } finally {
-      setIsAiLoading(false);
+      console.error("Decompose Goal Error:", error);
     }
   };
 
-  const handleApproveAI = async () => {
-    if (!user || !aiProposal || !editingGoal) return;
-    
-    const createGoalsRecursively = async (items: any[], parentId: string) => {
-      for (const item of items) {
-        const docRef = await addDoc(collection(db, "goals"), {
-          title: item.title,
-          description: item.description || "",
-          targetValue: Number(item.targetValue) || 0,
-          currentValueAbs: 0,
-          progressAvg: 0,
-          unit: editingGoal.unit,
-          level: item.level,
-          timeValue: item.timeValue,
-          parentId: parentId,
-          ownerId: user.uid,
-          createdAt: serverTimestamp(),
-          startDate: editingGoal.startDate,
-          endDate: editingGoal.endDate
-        });
-        
-        // If it's a week goal, create tasks
-        if (item.level === 'week' && item.children) {
-          for (const child of item.children) {
-            await addDoc(collection(db, "tasks"), {
-              title: child.title,
-              description: `Công việc cho tuần ${item.title}`,
-              ownerId: user.uid,
-              columnId: "todo",
-              priority: "Medium",
-              progress: 0,
-              tags: [],
-              checklist: [],
-              linkedGoalId: docRef.id,
-              createdAt: serverTimestamp()
-            });
-          }
-        }
-
-        if (item.children && item.children.length > 0 && item.level !== 'week') {
-          await createGoalsRecursively(item.children, docRef.id);
-        }
-      }
-    };
-
-    try {
-      setIsAiLoading(true);
-      await createGoalsRecursively(aiProposal, editingGoal.id);
-      setIsReviewingAI(false);
-      setAiProposal(null);
-      setEditingGoal(null);
-      confetti();
-    } catch (error) {
-      console.error("Approve AI Error:", error);
-      alert("Có lỗi xảy ra khi tạo các mục tiêu con.");
-    } finally {
-      setIsAiLoading(false);
-    }
-  };
 
   const toggleGoalExpansion = (goalId: string) => {
     setExpandedGoals(prev => 
@@ -1130,9 +1189,56 @@ export default function App() {
     );
   };
 
+  const updateProgressRecursively = async (goalId: string) => {
+    if (!goalId) return;
+    
+    // We need the latest data, but since we are in a listener, 
+    // we can use the 'goals' and 'subTasks' from state.
+    // However, for immediate consistency, we might want to fetch or just rely on state.
+    // Let's rely on state for now, but be aware of race conditions.
+    
+    const currentGoal = goals.find(g => g.id === goalId);
+    if (!currentGoal) return;
+
+    let newProgressAvg = 0;
+    
+    if (currentGoal.level === "week") {
+      const goalSubTasks = subTasks.filter(st => st.taskId === goalId);
+      if (goalSubTasks.length > 0) {
+        const completed = goalSubTasks.filter(st => st.isCompleted).length;
+        newProgressAvg = (completed / goalSubTasks.length) * 100;
+      }
+    } else {
+      const children = goals.filter(g => g.parentId === goalId);
+      if (children.length > 0) {
+        const totalProgress = children.reduce((acc, child) => {
+          // If child is a week, we use its progressAvg
+          // If child is something else, we also use its progressAvg
+          return acc + (child.progressAvg || 0);
+        }, 0);
+        newProgressAvg = totalProgress / children.length;
+      }
+    }
+
+    await updateDoc(doc(db, "goals", goalId), { progressAvg: newProgressAvg });
+
+    if (currentGoal.parentId) {
+      await updateProgressRecursively(currentGoal.parentId);
+    }
+  };
+
   const toggleSubTask = async (subTask: SubTask) => {
     try {
-      await updateDoc(doc(db, "subtasks", subTask.id), { isCompleted: !subTask.isCompleted });
+      const newStatus = !subTask.isCompleted;
+      await updateDoc(doc(db, "subtasks", subTask.id), { isCompleted: newStatus });
+      
+      // Update progress of the linked goal (week goal)
+      if (subTask.taskId) {
+        // We need to pass the updated subtasks to the recursive function 
+        // or wait for the state to update. 
+        // For simplicity, let's just trigger it.
+        setTimeout(() => updateProgressRecursively(subTask.taskId), 500);
+      }
     } catch (error) {
       console.error("Toggle Subtask Error:", error);
     }
@@ -1155,17 +1261,13 @@ export default function App() {
     }
   };
 
-  const deleteSubTask = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, "subtasks", id));
-    } catch (error) {
-      console.error("Delete Subtask Error:", error);
-    }
-  };
-
   const updateGoalValue = async (goalId: string, value: number) => {
     try {
       await updateDoc(doc(db, "goals", goalId), { currentValueAbs: value });
+      const goal = goals.find(g => g.id === goalId);
+      if (goal && goal.parentId) {
+        setTimeout(() => updateProgressRecursively(goal.parentId), 500);
+      }
     } catch (error) {
       console.error("Update Goal Value Error:", error);
     }
@@ -1235,13 +1337,16 @@ export default function App() {
   const [selectedWeekGoal, setSelectedWeekGoal] = useState<Goal | null>(null);
 
   const statsData = useMemo(() => {
-    const levelCounts = [
-      { name: "Đại Nguyện", value: goals.filter(g => g.level === 'grand').length },
-      { name: "Năm", value: goals.filter(g => g.level === 'year').length },
-      { name: "Quý", value: goals.filter(g => g.level === 'quarter').length },
-      { name: "Tháng", value: goals.filter(g => g.level === 'month').length },
-      { name: "Tuần", value: goals.filter(g => g.level === 'week').length },
+    const levelStats = [
+      { name: "Đại Nguyện", count: goals.filter(g => g.level === 'grand').length, avgProgress: goals.filter(g => g.level === 'grand').reduce((acc, g) => acc + (g.progressAvg || 0), 0) / (goals.filter(g => g.level === 'grand').length || 1) },
+      { name: "Năm", count: goals.filter(g => g.level === 'year').length, avgProgress: goals.filter(g => g.level === 'year').reduce((acc, g) => acc + (g.progressAvg || 0), 0) / (goals.filter(g => g.level === 'year').length || 1) },
+      { name: "Quý", count: goals.filter(g => g.level === 'quarter').length, avgProgress: goals.filter(g => g.level === 'quarter').reduce((acc, g) => acc + (g.progressAvg || 0), 0) / (goals.filter(g => g.level === 'quarter').length || 1) },
+      { name: "Tháng", count: goals.filter(g => g.level === 'month').length, avgProgress: goals.filter(g => g.level === 'month').reduce((acc, g) => acc + (g.progressAvg || 0), 0) / (goals.filter(g => g.level === 'month').length || 1) },
+      { name: "Tuần", count: goals.filter(g => g.level === 'week').length, avgProgress: goals.filter(g => g.level === 'week').reduce((acc, g) => acc + (g.progressAvg || 0), 0) / (goals.filter(g => g.level === 'week').length || 1) },
     ];
+
+    const levelCounts = levelStats.map(s => ({ name: s.name, value: s.count }));
+    const levelProgress = levelStats.map(s => ({ name: s.name, value: Math.round(s.avgProgress) }));
 
     const priorityCounts = [
       { name: "Cao", value: tasks.filter(t => t.priority === 'High').length, color: '#C2410C' },
@@ -1249,7 +1354,7 @@ export default function App() {
       { name: "Thấp", value: tasks.filter(t => t.priority === 'Low').length, color: '#D4C5B3' },
     ];
 
-    return { levelCounts, priorityCounts };
+    return { levelCounts, priorityCounts, levelProgress };
   }, [goals, tasks]);
 
   if (isAuthLoading) {
@@ -1525,9 +1630,10 @@ export default function App() {
                   onChange={(e) => setSelectedYear(e.target.value)}
                   className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer"
                 >
-                  {[2024, 2025, 2026, 2027, 2028].map(y => (
-                    <option key={y} value={y.toString()}>{y}</option>
-                  ))}
+                  {[0, 1, 2, 3, 4].map(offset => {
+                    const y = new Date().getFullYear() + offset;
+                    return <option key={y} value={y.toString()}>{y}</option>;
+                  })}
                 </select>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1550,7 +1656,10 @@ export default function App() {
                 <div className="flex items-center gap-4">
                   <span className="text-xs font-bold uppercase tracking-widest text-sage">Năm:</span>
                   <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer">
-                    {[2024, 2025, 2026, 2027, 2028].map(y => <option key={y} value={y.toString()}>{y}</option>)}
+                    {[0, 1, 2, 3, 4].map(offset => {
+                      const y = new Date().getFullYear() + offset;
+                      return <option key={y} value={y.toString()}>{y}</option>;
+                    })}
                   </select>
                 </div>
                 <div className="flex items-center gap-4">
@@ -1580,7 +1689,10 @@ export default function App() {
                 <div className="flex items-center gap-4">
                   <span className="text-xs font-bold uppercase tracking-widest text-sage">Năm:</span>
                   <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer">
-                    {[2024, 2025, 2026, 2027, 2028].map(y => <option key={y} value={y.toString()}>{y}</option>)}
+                    {[0, 1, 2, 3, 4].map(offset => {
+                      const y = new Date().getFullYear() + offset;
+                      return <option key={y} value={y.toString()}>{y}</option>;
+                    })}
                   </select>
                 </div>
                 <div className="flex items-center gap-4">
@@ -1608,21 +1720,19 @@ export default function App() {
             <div className="flex-1 flex flex-col relative z-10 space-y-6 overflow-hidden">
               <div className="flex items-center gap-8 bg-white/40 p-4 border border-silk oriental-card">
                 <div className="flex items-center gap-4">
-                  <span className="text-xs font-bold uppercase tracking-widest text-sage">Năm:</span>
-                  <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer">
-                    {[2024, 2025, 2026, 2027, 2028].map(y => <option key={y} value={y.toString()}>{y}</option>)}
-                  </select>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-xs font-bold uppercase tracking-widest text-sage">Tháng:</span>
-                  <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer">
-                    {Array.from({ length: 12 }).map((_, i) => <option key={i+1} value={(i+1).toString()}>Tháng {i+1}</option>)}
-                  </select>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-xs font-bold uppercase tracking-widest text-sage">Tuần:</span>
-                  <select value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)} className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer">
-                    {['1', '2', '3', '4', '5'].map(w => <option key={w} value={w}>Tuần {w}</option>)}
+                  <span className="text-xs font-bold uppercase tracking-widest text-sage">Chọn Tuần:</span>
+                  <select 
+                    value={selectedWeek} 
+                    onChange={(e) => setSelectedWeek(e.target.value)} 
+                    className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer"
+                  >
+                    {/* Generate weeks for the current year */}
+                    {Array.from({ length: 52 }).map((_, i) => {
+                      const wNum = i + 1;
+                      const year = new Date().getFullYear();
+                      const val = `W${wNum}-${year}`;
+                      return <option key={val} value={val}>Tuần {wNum} - {year}</option>;
+                    })}
                   </select>
                 </div>
               </div>
@@ -1641,25 +1751,52 @@ export default function App() {
                         >
                           <div className="flex justify-between items-start mb-2">
                             <h4 className="text-sm font-bold leading-tight">{goal.title}</h4>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="w-6 h-6 text-sage"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const val = prompt("Nhập kết quả thực tế đạt được:", goal.currentValueAbs.toString());
-                                if (val !== null) updateGoalValue(goal.id, Number(val));
-                              }}
-                            >
-                              <Plus className="w-3 h-3" />
-                            </Button>
+                            <div className="flex gap-1">
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="w-6 h-6 text-sage"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const val = prompt("Nhập kết quả thực tế đạt được:", goal.currentValueAbs.toString());
+                                  if (val !== null) updateGoalValue(goal.id, Number(val));
+                                }}
+                              >
+                                <Plus className="w-3 h-3" />
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="w-6 h-6 text-sage"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const title = prompt("Nhập tên công việc mới:");
+                                  if (title) addSubTask(title, 1);
+                                }}
+                              >
+                                <CheckSquare className="w-3 h-3" />
+                              </Button>
+                            </div>
                           </div>
-                          <div className="flex justify-between items-center text-[10px] font-bold text-sage">
-                            <span>{goal.currentValueAbs} / {goal.targetValue} {goal.unit}</span>
-                            <span>{goal.progressAvg}%</span>
-                          </div>
-                          <div className="mt-1 h-1 w-full bg-silk/20 rounded-full overflow-hidden">
-                            <div className="h-full bg-sage" style={{ width: `${goal.progressAvg}%` }} />
+                          <div className="space-y-2">
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-[9px] font-bold uppercase opacity-60">
+                                <span>Tuyệt đối</span>
+                                <span>{goal.currentValueAbs} / {goal.targetValue}</span>
+                              </div>
+                              <div className="h-1 w-full bg-silk/20 rounded-full overflow-hidden">
+                                <div className="h-full bg-cinnabar" style={{ width: `${Math.min((goal.currentValueAbs / goal.targetValue) * 100, 100)}%` }} />
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-[9px] font-bold uppercase opacity-60">
+                                <span>Trung bình con</span>
+                                <span>{Math.round(goal.progressAvg || 0)}%</span>
+                              </div>
+                              <div className="h-1 w-full bg-silk/20 rounded-full overflow-hidden">
+                                <div className="h-full bg-sage" style={{ width: `${goal.progressAvg || 0}%` }} />
+                              </div>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -1667,53 +1804,47 @@ export default function App() {
                   </ScrollArea>
                 </div>
 
-                {/* Right Area: Daily Columns */}
-                <div className="flex-1 flex gap-4 overflow-x-auto pb-4">
-                  {['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ Nhật'].map((day, idx) => (
-                    <div key={day} className="w-64 flex-shrink-0 flex flex-col gap-4">
-                      <div className="bg-paper p-2 text-center text-[10px] font-bold text-sage uppercase tracking-widest border border-silk">
-                        {day}
-                      </div>
-                      <div className="flex-1 bg-white/30 border border-silk/50 p-3 space-y-3 overflow-y-auto">
-                        {subTasks.filter(st => st.dayOfWeek === idx + 1).map(st => (
-                          <div key={st.id} className="p-3 bg-white border border-silk shadow-sm text-xs group relative">
-                            <div className="flex justify-between items-start mb-1">
-                              <span className={`text-[8px] uppercase font-bold px-1 ${st.priority === 'High' ? 'bg-cinnabar/10 text-cinnabar' : 'bg-sage/10 text-sage'}`}>
-                                {st.priority}
-                              </span>
-                              <input 
-                                type="checkbox" 
-                                checked={st.isCompleted} 
-                                onChange={() => toggleSubTask(st)}
-                                className="w-3 h-3 rounded-none border-silk text-sage focus:ring-sage cursor-pointer"
-                              />
+                {/* Right Area: Daily Calendar Interface */}
+                <DndContext 
+                  sensors={sensors}
+                  collisionDetection={closestCorners}
+                  onDragEnd={handleSubTaskDragEnd}
+                >
+                  <div className="flex-1 flex gap-4 overflow-x-auto pb-4">
+                    {['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ Nhật'].map((day, idx) => {
+                      const dayNum = idx + 1;
+                      const daySubTasks = subTasks.filter(st => 
+                        st.dayOfWeek === dayNum && 
+                        (selectedWeekGoal ? st.taskId === selectedWeekGoal.id : true)
+                      );
+
+                      return (
+                        <DroppableDay key={day} day={day} dayNum={dayNum}>
+                          <SortableContext 
+                            items={daySubTasks.map(st => st.id)}
+                            strategy={verticalListSortingStrategy}
+                          >
+                            <div className="space-y-3">
+                              {daySubTasks.map(st => (
+                                <SortableSubTask 
+                                  key={st.id} 
+                                  subTask={st} 
+                                  onToggle={toggleSubTask}
+                                  onDelete={deleteSubTask}
+                                />
+                              ))}
+                              {daySubTasks.length === 0 && (
+                                <div className="h-20 border border-dashed border-silk/30 flex items-center justify-center text-[10px] text-sage/40 italic">
+                                  Kéo thả hoặc thêm công việc
+                                </div>
+                              )}
                             </div>
-                            <p className={st.isCompleted ? 'line-through text-ink/40' : ''}>{st.title}</p>
-                            {st.notes && <p className="text-[9px] text-sage/60 mt-1 italic">{st.notes}</p>}
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="absolute -top-2 -right-2 w-5 h-5 bg-white border border-silk opacity-0 group-hover:opacity-100 transition-opacity"
-                              onClick={() => deleteSubTask(st.id)}
-                            >
-                              <Trash2 className="w-2 h-2 text-cinnabar" />
-                            </Button>
-                          </div>
-                        ))}
-                        <Button 
-                          variant="ghost" 
-                          className="w-full border border-dashed border-silk/50 text-[10px] text-sage/60 hover:text-sage h-8 rounded-none"
-                          onClick={() => {
-                            const title = prompt("Nhập tên công việc:");
-                            if (title) addSubTask(title, idx + 1);
-                          }}
-                        >
-                          + Thêm việc
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                          </SortableContext>
+                        </DroppableDay>
+                      );
+                    })}
+                  </div>
+                </DndContext>
               </div>
             </div>
           )}
@@ -1735,6 +1866,26 @@ export default function App() {
                           cursor={{ fill: '#5D6D5D10' }}
                         />
                         <Bar dataKey="value" fill="#5D6D5D" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card className="oriental-card border-silk bg-white/60">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-bold uppercase tracking-widest">Tiến Độ Trung Bình Theo Cấp Độ (%)</CardTitle>
+                  </CardHeader>
+                  <CardContent className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={statsData.levelProgress}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#D4C5B3" vertical={false} />
+                        <XAxis dataKey="name" stroke="#5D6D5D" fontSize={10} tickLine={false} axisLine={false} />
+                        <YAxis stroke="#5D6D5D" fontSize={10} tickLine={false} axisLine={false} domain={[0, 100]} />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: '#F4F1EA', border: '1px solid #D4C5B3', fontFamily: 'serif' }}
+                          cursor={{ fill: '#5D6D5D10' }}
+                        />
+                        <Bar dataKey="value" fill="#A63D33" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </CardContent>
@@ -1773,6 +1924,36 @@ export default function App() {
                         </div>
                       ))}
                     </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="oriental-card border-silk bg-white/60">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-bold uppercase tracking-widest">Trạng Thái Kanban</CardTitle>
+                  </CardHeader>
+                  <CardContent className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'To Do', value: tasks.filter(t => t.columnId === 'todo').length },
+                            { name: 'In Progress', value: tasks.filter(t => t.columnId === 'in-progress').length },
+                            { name: 'Done', value: tasks.filter(t => t.columnId === 'done').length },
+                          ]}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          <Cell fill="#D4C5B3" />
+                          <Cell fill="#5D6D5D" />
+                          <Cell fill="#A63D33" />
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
                   </CardContent>
                 </Card>
               </div>
@@ -1940,88 +2121,17 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
-      {/* AI Review Dialog */}
-      <Dialog open={isReviewingAI} onOpenChange={setIsReviewingAI}>
-        <DialogContent className="oriental-card border-silk max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-sage" /> Review Phân Rã AI
-            </DialogTitle>
-            <DialogDescription>
-              AI đã đề xuất lộ trình phân rã cho mục tiêu: <span className="font-bold text-ink">{editingGoal?.title}</span>. 
-              Bạn có thể chỉnh sửa các con số trước khi duyệt.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="py-6 space-y-6">
-            {aiProposal?.map((item, idx) => (
-              <div key={idx} className="border border-silk p-4 bg-paper/30 space-y-4">
-                <div className="flex justify-between items-center">
-                  <Input 
-                    value={item.title} 
-                    onChange={(e) => {
-                      const newProposal = [...aiProposal];
-                      newProposal[idx].title = e.target.value;
-                      setAiProposal(newProposal);
-                    }}
-                    className="font-bold text-sage bg-transparent border-none p-0 h-auto focus-visible:ring-0"
-                  />
-                  <div className="flex items-center gap-2">
-                    <Input 
-                      type="number"
-                      value={item.targetValue}
-                      onChange={(e) => {
-                        const newProposal = [...aiProposal];
-                        newProposal[idx].targetValue = Number(e.target.value);
-                        setAiProposal(newProposal);
-                      }}
-                      className="w-20 h-8 text-right border-silk rounded-none"
-                    />
-                    <span className="text-xs font-bold text-sage">{editingGoal?.unit}</span>
-                  </div>
-                </div>
-                
-                {item.children && item.children.length > 0 && (
-                  <div className="pl-6 border-l-2 border-silk/30 space-y-3">
-                    {item.children.map((child: any, cIdx: number) => (
-                      <div key={cIdx} className="flex justify-between items-center gap-4">
-                        <Input 
-                          value={child.title}
-                          onChange={(e) => {
-                            const newProposal = [...aiProposal];
-                            newProposal[idx].children[cIdx].title = e.target.value;
-                            setAiProposal(newProposal);
-                          }}
-                          className="text-xs italic bg-transparent border-none p-0 h-auto focus-visible:ring-0"
-                        />
-                        <div className="flex items-center gap-2">
-                          <Input 
-                            type="number"
-                            value={child.targetValue}
-                            onChange={(e) => {
-                              const newProposal = [...aiProposal];
-                              newProposal[idx].children[cIdx].targetValue = Number(e.target.value);
-                              setAiProposal(newProposal);
-                            }}
-                            className="w-16 h-7 text-[10px] text-right border-silk rounded-none"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setIsReviewingAI(false)}>Hủy</Button>
-            <Button onClick={handleApproveAI} className="ink-button rounded-none" disabled={isAiLoading}>
-              {isAiLoading ? "Đang Khởi Tạo..." : "Duyệt & Tạo Ticket"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Decomposition Review Modal */}
+      {isReviewingDecomposition && decompositionProposal && (
+        <ReviewDecompositionModal 
+          proposal={decompositionProposal}
+          onApprove={approveDecomposition}
+          onCancel={() => {
+            setIsReviewingDecomposition(false);
+            setDecompositionProposal(null);
+          }}
+        />
+      )}
       <Dialog open={isAddingGoal} onOpenChange={setIsAddingGoal}>
         <DialogContent className="bg-paper border-silk rounded-none">
           <DialogHeader>
@@ -2043,7 +2153,15 @@ export default function App() {
                 <label className="text-[10px] font-bold uppercase tracking-widest">Cấp Độ</label>
                 <select 
                   value={newGoal.level}
-                  onChange={(e) => setNewGoal({...newGoal, level: e.target.value as any})}
+                  onChange={(e) => {
+                    const level = e.target.value as any;
+                    let timeValue = "";
+                    if (level === "year") timeValue = new Date().getFullYear().toString();
+                    if (level === "quarter") timeValue = "1";
+                    if (level === "month") timeValue = "1";
+                    if (level === "week") timeValue = `W1-${new Date().getFullYear()}`;
+                    setNewGoal({...newGoal, level, timeValue});
+                  }}
                   className="w-full bg-white/50 border border-silk p-2 text-sm focus:ring-0 rounded-none"
                 >
                   <option value="year">Năm</option>
@@ -2076,6 +2194,31 @@ export default function App() {
                   placeholder="Nhập số lượng..."
                   className="bg-white/50 border-silk rounded-none"
                 />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest">Thời Gian</label>
+                <select 
+                  value={newGoal.timeValue}
+                  onChange={(e) => setNewGoal({...newGoal, timeValue: e.target.value})}
+                  className="w-full bg-white/50 border border-silk p-2 text-sm focus:ring-0 rounded-none"
+                >
+                  {newGoal.level === "year" && [0, 1, 2, 3, 4].map(offset => {
+                    const y = new Date().getFullYear() + offset;
+                    return <option key={y} value={y.toString()}>{y}</option>;
+                  })}
+                  {newGoal.level === "quarter" && [1, 2, 3, 4].map(q => (
+                    <option key={q} value={q.toString()}>Quý {q}</option>
+                  ))}
+                  {newGoal.level === "month" && Array.from({ length: 12 }).map((_, i) => (
+                    <option key={i+1} value={(i+1).toString()}>Tháng {i+1}</option>
+                  ))}
+                  {newGoal.level === "week" && Array.from({ length: 52 }).map((_, i) => {
+                    const wNum = i + 1;
+                    const year = new Date().getFullYear();
+                    const val = `W${wNum}-${year}`;
+                    return <option key={val} value={val}>Tuần {wNum} - {year}</option>;
+                  })}
+                </select>
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase tracking-widest">Phương Thức Cập Nhật</label>

@@ -1,4 +1,8 @@
-# Hướng dẫn Cấu hình AI cho GitHub Pages
+# Hướng dẫn Triển khai (Deployment Guide)
+
+Tài liệu này hướng dẫn bạn cách đưa ứng dụng lên GitHub Pages và cấu hình các tính năng cần thiết. Bạn có thể lưu file `DEPLOY.md` này trực tiếp vào repository của mình để tiện tra cứu.
+
+## Phương án 1: Triển khai Tự động (GitHub Actions) - KHUYÊN DÙNG
 
 Vì bạn sử dụng GitHub Pages, bạn cần cung cấp "Chìa khóa AI" (Gemini API Key) thủ công để tính năng Phân rã AI hoạt động.
 
@@ -21,6 +25,17 @@ Sau khi thêm Secret, bạn cần chạy lại bản build:
 1. Vào tab **Actions** trên GitHub.
 2. Chọn workflow **Deploy to GitHub Pages**.
 3. Nhấn **Run workflow** -> **Run workflow**.
+
+---
+
+## Phương án 2: Triển khai Thủ công (Dành cho máy cá nhân)
+
+Nếu bạn muốn tự mình triển khai từ máy tính (Local), hãy làm theo các bước sau:
+
+1. **Cài đặt:** Chạy `npm install` để cài đặt các thư viện cần thiết.
+2. **Cấu hình AI:** Tạo file `.env` ở thư mục gốc và thêm dòng:
+   `VITE_GEMINI_API_KEY=mã_khóa_của_bạn`
+3. **Triển khai:** Chạy lệnh `npm run deploy`. Lệnh này sẽ tự động build và đẩy code lên nhánh `gh-pages`.
 
 ---
 
