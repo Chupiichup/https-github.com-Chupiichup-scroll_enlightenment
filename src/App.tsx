@@ -1378,8 +1378,13 @@ export default function App() {
         
         <Card className="w-full max-w-md oriental-card border-silk bg-white/80 backdrop-blur-xl relative z-10 p-12 text-center space-y-8">
           <div className="space-y-4">
-            <div className="w-20 h-20 border-2 border-cinnabar rounded-full flex items-center justify-center mx-auto relative">
-              <Library className="text-cinnabar w-10 h-10" />
+            <div className="w-20 h-20 border-2 border-cinnabar rounded-full flex items-center justify-center mx-auto relative overflow-hidden">
+              <img 
+                src="https://images.unsplash.com/photo-1493246507139-91e8bef99c02?auto=format&fit=crop&w=200&h=200" 
+                alt="Logo" 
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
               <div className="absolute -bottom-1 -right-1 bg-cinnabar text-paper text-[10px] px-1.5 font-bold">藏書</div>
             </div>
             <div className="space-y-1">
@@ -1411,8 +1416,13 @@ export default function App() {
       {/* Sidebar - Oriental Style */}
       <aside className="w-64 border-r border-silk bg-white/40 backdrop-blur-md flex flex-col">
         <div className="p-8 flex flex-col items-center gap-4">
-          <div className="w-16 h-16 border-2 border-cinnabar rounded-full flex items-center justify-center relative">
-            <Library className="text-cinnabar w-8 h-8" />
+          <div className="w-16 h-16 border-2 border-cinnabar rounded-full flex items-center justify-center relative overflow-hidden">
+            <img 
+              src="https://images.unsplash.com/photo-1493246507139-91e8bef99c02?auto=format&fit=crop&w=100&h=100" 
+              alt="Logo" 
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
             <div className="absolute -bottom-1 -right-1 bg-cinnabar text-paper text-[8px] px-1 font-bold">
               藏書
             </div>
