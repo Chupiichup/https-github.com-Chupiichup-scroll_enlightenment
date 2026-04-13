@@ -1584,7 +1584,7 @@ export default function App() {
             <div>
               <div className="flex items-center gap-3 mb-1">
                 <h2 className="text-3xl font-bold tracking-tight">
-                  {currentView === "grand" && "Đại Lộ Công Danh (V2)"}
+                  {currentView === "grand" && "Đại Lộ Công Danh"}
                   {currentView === "year" && "Đạo Pháp Theo Năm"}
                   {currentView === "quarter" && "Đạo Pháp Theo Quý"}
                   {currentView === "month" && "Đạo Pháp Theo Tháng"}
