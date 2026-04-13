@@ -1,6 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ * Version: 1.0.1 - Removed AI
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -1583,7 +1584,7 @@ export default function App() {
             <div>
               <div className="flex items-center gap-3 mb-1">
                 <h2 className="text-3xl font-bold tracking-tight">
-                  {currentView === "grand" && "Đại Lộ Công Danh"}
+                  {currentView === "grand" && "Đại Lộ Công Danh (V2)"}
                   {currentView === "year" && "Đạo Pháp Theo Năm"}
                   {currentView === "quarter" && "Đạo Pháp Theo Quý"}
                   {currentView === "month" && "Đạo Pháp Theo Tháng"}
