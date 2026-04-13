@@ -29,7 +29,6 @@ import {
   Tag as TagIcon,
   Calendar as CalendarIcon,
   MessageSquare,
-  Zap,
   BarChart3,
   LayoutDashboard,
   Trophy,
@@ -1584,7 +1583,7 @@ export default function App() {
             <div>
               <div className="flex items-center gap-3 mb-1">
                 <h2 className="text-3xl font-bold tracking-tight">
-                  {currentView === "grand" && "Đại Lộ Công Danh"}
+                  {currentView === "grand" && "Đại Lộ Công Danh - Bản Mới"}
                   {currentView === "year" && "Đạo Pháp Theo Năm"}
                   {currentView === "quarter" && "Đạo Pháp Theo Quý"}
                   {currentView === "month" && "Đạo Pháp Theo Tháng"}
