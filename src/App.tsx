@@ -16,7 +16,6 @@ import {
   Library,
   Book,
   ScrollText,
-  Sparkles,
   ChevronRight,
   Calendar,
   Filter,
@@ -354,7 +353,7 @@ function SortableTask({ task, getStatusColor, onDelete, onOpen }: {
 }
 
 // --- Goal Node Component ---
-function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedGoals, onUpdateValue, isAiLoading, onDelete, onEdit }: {
+function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedGoals, onUpdateValue, onDelete, onEdit }: {
   goal: Goal,
   allGoals: Goal[],
   onDecompose: (g: Goal) => void,
@@ -362,7 +361,6 @@ function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedG
   isExpanded: boolean,
   expandedGoals: string[],
   onUpdateValue: (id: string, val: number) => void,
-  isAiLoading: boolean,
   onDelete: (id: string) => void,
   onEdit: (g: Goal) => void
 }) {
@@ -458,10 +456,9 @@ function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedG
                 variant="outline" 
                 size="sm" 
                 onClick={() => onDecompose(goal)}
-                disabled={isAiLoading}
                 className="rounded-none border-current text-[10px] font-bold uppercase"
               >
-                <ArrowRight className="w-3 h-3 mr-1" /> Phân Rã Đại Nguyện
+                <ArrowRight className="w-3 h-3 mr-1" /> Phân Rã Tự Động
               </Button>
             )}
             {children.length > 0 && (
@@ -491,7 +488,6 @@ function GoalNode({ goal, allGoals, onDecompose, onToggle, isExpanded, expandedG
               isExpanded={expandedGoals.includes(child.id)}
               expandedGoals={expandedGoals}
               onUpdateValue={onUpdateValue}
-              isAiLoading={isAiLoading}
               onDelete={onDelete}
               onEdit={onEdit}
             />
@@ -555,7 +551,7 @@ const GoalCard = ({ goal, onEdit, onDelete, onDecompose }: { goal: Goal, onEdit:
             className="w-full border-dashed border-silk text-sage text-[10px] uppercase font-bold tracking-widest gap-2"
             onClick={() => onDecompose(goal)}
           >
-            <ArrowRight className="w-3 h-3" /> Phân rã đại nguyện
+            <ArrowRight className="w-3 h-3" /> Phân rã tự động
           </Button>
         )}
       </CardContent>
@@ -705,7 +701,6 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(`M${new Date().getMonth() + 1}-${new Date().getFullYear()}`);
   const [selectedWeek, setSelectedWeek] = useState(`W${Math.ceil((new Date().getDate() + new Date(new Date().getFullYear(), new Date().getMonth(), 1).getDay()) / 7)}-${new Date().getFullYear()}`);
 
-  const [isAiLoading, setIsAiLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   
@@ -2018,7 +2013,6 @@ export default function App() {
                       isExpanded={expandedGoals.includes(yearGoal.id)}
                       expandedGoals={expandedGoals}
                       onUpdateValue={updateGoalValue}
-                      isAiLoading={isAiLoading}
                       onDelete={deleteGoal}
                       onEdit={(g) => {
                         setEditingGoal(g);
